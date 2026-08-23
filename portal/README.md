@@ -36,6 +36,25 @@ cp .env.example .env.local     # then fill in TEMPORAL_CLOUD_API_KEY
 pnpm dev
 ```
 
+`pnpm dev` prints the links before Next starts, so there is no URL to assemble by
+hand:
+
+```
+  Lab links - participant p-dev, slot 7
+
+  overview    http://localhost:3000/?k=devcode&p=p-dev&t=6e6b4ba2…&slot=7
+  lab 1       http://localhost:3000/lab/1?k=devcode&p=p-dev&t=6e6b4ba2…&slot=7
+  ...
+  instructor  http://localhost:3000/instructor?t=…
+```
+
+Override the identity with `DEV_PARTICIPANT` and `DEV_SLOT`, and the port with
+`PORT`. `pnpm link:lab` prints them again without restarting anything.
+
+The token is derived with the same HMAC the sandbox and the state service use, so a
+link printed here is the same shape a student gets — including the four values the
+pages actually require.
+
 A `.env.local` with placeholders is already committed-adjacent (gitignored), so
 `pnpm dev` works before you have a Cloud key: **lab material renders, and only the
 checkpoints panel reports the missing credential.** That is deliberate — a single

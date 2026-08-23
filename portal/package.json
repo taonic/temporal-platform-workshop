@@ -4,9 +4,10 @@
   "private": true,
   "description": "Lab material and live checkpoints for the Temporal platform workshop. Reads the control plane the students built; it has no database of its own.",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "node scripts/dev-link.mjs && next dev -p ${PORT:-3000}",
+    "link:lab": "node scripts/dev-link.mjs",
     "build": "next build",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "node scripts/dev-link.mjs && next start -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck"
   },
@@ -14,7 +15,8 @@
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@next/env": "^15.1.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
