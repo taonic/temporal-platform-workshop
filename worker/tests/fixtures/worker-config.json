@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "service": "orders-staging-worker",
+  "owner": "payments-team",
+  "namespace": "orders",
+  "environment": "staging",
+  "taskQueues": [
+    "orders-main"
+  ],
+  "workflows": [
+    {
+      "name": "GreetingWorkflow",
+      "taskQueue": "orders-main"
+    }
+  ],
+  "activities": [
+    {
+      "name": "compose_greeting",
+      "taskQueue": "orders-main"
+    }
+  ]
+}

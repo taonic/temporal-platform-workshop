@@ -1,0 +1,107 @@
+# Temporal Platform Workshop
+
+A control plane for Temporal Cloud, built as a five-challenge workshop.
+
+A CLI asks four questions and writes a spec. A Temporal entity workflow reads the
+spec and makes it true — namespaces, least-privilege identities, credentials in
+Vault. A decorator in the application code declares a task queue, and the platform
+generates the worker config, the image and the Kubernetes manifest from it.
+
+> Temporal makes durable execution possible; the platform path makes it repeatable.
+> — *OpenAI @ Replay 2026*
+
+The design and its reasoning are in **[DESIGN.md](DESIGN.md)**. Read that first if
+you want to know *why* rather than *what*.
+
+## Layout
+
+```
+cmd/nsctl/            the front door: wizard, apply, sync, status, worker, slot, reap
+cmd/platform-worker/  the control plane: hosts the reconciler and the activities
+internal/platform/    workflows and activities -- the reconciler lives here
+internal/tfexec/      terraform subprocess, pluggable state backend, no locking
+internal/tfworkspace/ embedded module -> scratch dir -> apply -> throw away
+internal/cloudops/    Cloud Ops API, for the things Terraform must not do
+internal/vaultkv/     Vault: source of the platform's key, sink for minted keys
+internal/spec/        the namespace spec. Never leaves Go
+internal/workerconfig/the one contract that crosses the language seam
+terraform/namespace/  the module. Note what is absent: the API key
+worker/               the managed worker (Python) -- product-side code
+schema/               worker config JSON Schema, validated by both languages
+specs/                desired state. Committing here is how you ask for something
+services/state/       terraform http state backend, deliberately lock-free
+instruqt/             sandbox prebuild and the five challenges
+hooks/post-commit     delivers intent to the reconciler the moment it exists
+```
+
+Go for the platform, Python for the product. The seam falls on the boundary the
+workshop is teaching, not in an arbitrary place.
+
+## Run it locally
+
+You need Go 1.25+, Python 3.12+, `uv`, Terraform, Vault and the Temporal CLI.
+
+```bash
+make build
+
+# 1. A Temporal for the control plane to run on
+temporal server start-dev &
+
+# 2. Vault, holding the platform's own Cloud API key
+vault server -dev -dev-root-token-id=dev &
+export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=dev
+vault kv put secret/platform/cloud-api-key api_key="$TEMPORAL_CLOUD_API_KEY"
+
+# 3. Terraform state. Local is fine for one machine
+export STATE_DIR=.platform-state
+
+# 4. The control plane
+./bin/platform-worker &
+
+# 5. Use it
+./bin/nsctl new
+./bin/nsctl apply -f specs/<name>.yaml
+```
+
+For the declarative path, `git config core.hooksPath hooks`, then commit a spec and
+watch `nsctl status <name>`.
+
+## Test
+
+```bash
+make test         # Go: spec, worker config, and the reconciler's drift loop
+make py-test      # Python: the golden fixture both languages must round-trip
+make tf-validate  # the Terraform module
+make lint
+```
+
+`worker/tests/fixtures/worker-config.json` is read by both a Go test and a Python
+test. If the two sides ever disagree about the contract, one of them fails before
+anything reaches a cluster.
+
+## Three rules worth knowing before you read the code
+
+**The workflow id is the resource identity, so Temporal is the lock.** One child
+workflow per resource, keyed on the resource's name. Temporal refuses two
+executions with the same id, so there is a single writer per state file by
+construction — no lock table, no lease, no `terraform force-unlock`. Which is why
+`services/state` implements no `LOCK` endpoint and says so when you ask it.
+
+**Credentials never pass through Terraform.** `temporalcloud_apikey` exposes
+`.token` as a readable attribute, and `sensitive = true` masks CLI output without
+encrypting state. So keys are minted through the Cloud Ops API in a separate
+activity that writes to Vault and returns a *path*. Nothing sensitive in state,
+nothing sensitive in event history, and rotation stops being state surgery.
+
+**Config is generated from code, so it cannot drift.** The decorator is the source
+of truth for which queue a workflow runs on; `gen-config` reads the live registry;
+the worker re-checks the config against that registry on boot and exits non-zero if
+they disagree. Not a warning — a warning in a pod's logs is a warning nobody reads.
+
+## What this deliberately does not do
+
+The Go proxy from the talk (a week of work teaching gRPC interception, not platform
+design). A Kubernetes operator (the point is that a workflow is the better control
+loop). Terraform state locking (the absence *is* the lesson). SCIM, worker
+versioning, groups, Nexus. Each one is a decision with a reason — they are listed
+with those reasons in [DESIGN.md](DESIGN.md#deliberate-non-goals).

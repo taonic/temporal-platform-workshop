@@ -1,0 +1,23 @@
+# Go
+/bin/
+*.test
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+worker/.venv/
+
+# Local platform state
+/.platform-state/
+/generated/
+.env
+
+# pytest
+.pytest_cache/

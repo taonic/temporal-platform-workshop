@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Graded from workflow state, not from the Cloud.
+#
+# Cloud state proves a namespace exists. It cannot prove the loop *noticed*
+# something. Drift detection is invisible to the Ops API and plainly readable from
+# the reconciler's own Query handler -- which is why the reconciler is a workflow.
+set -uo pipefail
+source /etc/workshop/env
+fail() { echo "$1" >&2; exit 1; }
+
+SPEC=$(ls specs/*.yaml 2>/dev/null | grep -v '_example' | head -1)
+[ -n "$SPEC" ] || fail "No spec found."
+NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
+
+STATUS=$(nsctl status "$NAME" --json 2>/dev/null) \
+  || fail "No reconciler running for $NAME. Commit a spec, or run 'nsctl sync'."
+
+RECONCILES=$(echo "$STATUS" | jq -r '.reconciles')
+DRIFTS=$(echo "$STATUS" | jq -r '.driftsDetected')
+
+[ "$RECONCILES" -ge 1 ] || fail "The reconciler has never reconciled."
+[ "$DRIFTS" -ge 1 ] || fail "No drift detected yet. Change retention in the Cloud UI and wait for the timer."
+
+LAST=$(echo "$STATUS" | jq -r '.lastDrift // ""')
+echo "$LAST" | grep -qi retention \
+  || fail "Drift was detected but not on retention: '$LAST'"
+
+# It is not enough to notice. It has to correct.
+NS="ws-${WORKSHOP_SLOT}-${NAME}-staging"
+WANT=$(grep '^retentionDays:' "$SPEC" | awk '{print $2}')
+ACTUAL=$(temporal cloud namespace get --name "$NS" -o json 2>/dev/null | jq -r '.namespace.spec.retentionDays')
+[ "$ACTUAL" = "$WANT" ] \
+  || fail "Drift was detected but not corrected: $NS is at ${ACTUAL}d, spec says ${WANT}d. Give the loop another tick."
+
+echo "ok: ${RECONCILES} reconcile(s), ${DRIFTS} drift(s) detected and corrected"

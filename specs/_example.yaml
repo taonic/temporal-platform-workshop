@@ -1,0 +1,11 @@
+# Documentation, not desired state: files beginning with _ are skipped.
+# Generate a real one with `nsctl new`.
+name: orders
+owner: payments-team
+tier: standard
+retentionDays: 7
+region: aws-us-east-1
+environments:
+  - staging
+  - prod
+stateBackend: http

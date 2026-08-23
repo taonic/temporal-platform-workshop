@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://taonic.dev/temporal-platform-workshop/workerconfig.schema.json",
+  "title": "Worker config",
+  "description": "The one contract that crosses the language seam. Emitted by the Python side from the decorated workflows, consumed by the Python worker on boot and by the Go CLI when it templates a Kubernetes manifest. The namespace spec does not need a schema file because it never leaves Go.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "service", "owner", "namespace", "environment", "taskQueues", "workflows"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Bumped when the shape changes, so an old worker refuses a new config rather than misreading it."
+    },
+    "service": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,39}$",
+      "description": "Worker deployment name. Derived from the spec, not chosen by hand."
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Who gets paged. Comes from the spec so alert routing has a source of truth."
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,11}$",
+      "description": "Logical namespace name, matching the spec. The physical namespace is resolved at deploy time from the slot."
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["staging", "prod"]
+    },
+    "image": {
+      "type": "string",
+      "description": "Container image. Left empty by gen-config and filled in by the deploy step."
+    },
+    "taskQueues": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Every queue this worker polls. Derived from the decorators, never hand-listed."
+    },
+    "workflows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "taskQueue"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "taskQueue": { "type": "string", "minLength": 1 }
+        }
+      },
+      "description": "Workflow types this worker registers. The worker compares this against what it actually registered and refuses to start if they disagree."
+    },
+    "activities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "taskQueue"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "taskQueue": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "vaultPath": {
+      "type": "string",
+      "description": "Where the worker's credential lives. A path, never a secret."
+    }
+  }
+}

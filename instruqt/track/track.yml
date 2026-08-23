@@ -1,0 +1,69 @@
+slug: temporal-platform-workshop
+title: Build a Temporal Cloud Control Plane
+teaser: >-
+  Build the platform, not the workflow. A CLI that generates specs, a reconciler
+  that interprets them as Temporal workflows, and a paved road that ends with a
+  developer's worker on Kubernetes.
+description: |-
+  Most Temporal training teaches you to write a Workflow. This one teaches you to
+  **build the platform underneath it**.
+
+  Over five hands-on challenges you build a control plane for Temporal Cloud: a CLI
+  that asks four questions, a reconciler that turns the answers into real
+  namespaces, identities and credentials, and a paved road where a developer
+  declares a task queue in a decorator and the platform does everything else.
+
+  The measure at the end is the one OpenAI's platform team used: **time to first
+  workflow**. They took it from one-to-two weeks down to a day. The last challenge
+  puts a stopwatch on you.
+
+  ### What you'll do
+
+  1. **Spec to workflow** — Design the spec, run Terraform inside an Activity, and
+     watch one namespace appear. Imperative, on purpose.
+  2. **Fan-out and identity** — One spec, two environments, two scoped identities.
+     Mint the API keys *outside* Terraform and discover why that rule exists.
+  3. **Invert to declarative** — Same activities, new driver. Commit a spec and let
+     an entity workflow converge. Then change something in the Cloud UI behind the
+     platform's back and watch the drift timer catch you.
+  4. **The paved road** — A decorator declares a task queue; the platform generates
+     the config, templates the manifest and deploys the worker to Kubernetes, where
+     the credential arrives through Vault's Kubernetes auth.
+  5. **Be the developer** — Drop the platform hat. Empty directory, stopwatch, go.
+
+  ### What you'll leave with
+
+  A working control plane you can read, and one sentence you can defend in a design
+  review: *the workflow id is the resource identity, so Temporal's uniqueness
+  constraint is your state lock.*
+
+icon: https://storage.googleapis.com/instruqt-frontend/img/tracks/default.png
+tags:
+  - platform-engineering
+  - temporal-cloud
+  - terraform
+  - go
+  - python
+  - kubernetes
+owner: temporal
+developers:
+  - tao.guo@temporal.io
+
+# Self-paced: nothing here depends on an instructor being in the room, and no
+# challenge depends on another student's resources.
+idle_timeout: 7200
+timelimit: 28800
+sandbox_preset: temporal-platform-workshop
+
+lab_config:
+  extend_ttl: 10800
+  feedback_recap_enabled: true
+  hideStopButton: true
+  default_layout: AssignmentLeft
+  default_layout_sidebar_size: 38
+  loadingMessages:
+    - Warming the terraform provider cache, so your first apply is not your first wait.
+    - Building the worker image now, so challenge 4 is about deployment and not about docker.
+    - Leasing you a slot. Namespace names are recyclable by design; ask us why.
+    - Starting a control plane. It will shortly provision the namespace it runs on.
+    - Seeding Vault. The only credential in this sandbox lives there and nowhere else.

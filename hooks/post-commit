@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Intent, delivered the moment it exists.
+#
+# The reconciler learns about a spec change two ways. This hook is the fast one:
+# commit, and the loop is signalled immediately. The other is the drift timer
+# inside the reconciler, which catches what nobody committed.
+#
+# Signals carry intent; the timer catches reality. Keeping both is the point --
+# either alone teaches half the lesson.
+#
+# Install: git config core.hooksPath hooks
+set -euo pipefail
+
+if ! git diff-tree --no-commit-id --name-only -r HEAD | grep -q '^specs/'; then
+  exit 0
+fi
+
+if ! command -v nsctl >/dev/null 2>&1; then
+  echo "post-commit: nsctl is not on PATH; skipping sync" >&2
+  exit 0
+fi
+
+echo
+echo "specs/ changed -- delivering intent to the reconcilers"
+nsctl sync || {
+  echo
+  echo "post-commit: nsctl sync failed. The commit stands; the reconcilers do not"
+  echo "know about it yet. Fix the error and run 'nsctl sync' by hand -- or wait"
+  echo "for the drift timer, which will notice on its own."
+  exit 0   # never fail a commit over this
+}

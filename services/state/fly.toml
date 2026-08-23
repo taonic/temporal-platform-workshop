@@ -1,0 +1,37 @@
+# Terraform state for the workshop. One machine, one volume.
+#
+# One machine is a real limitation and it is worth naming: a deploy mid-workshop
+# will fail somebody's state write. That is survivable only because the reconciler
+# imports before it applies -- see tfworkspace.ApplyInput.AttemptImport -- which
+# re-adopts resources whose state never landed.
+app = "temporal-workshop-tfstate"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  STATE_DIR = "/data"
+  PORT = "8080"
+
+[[mounts]]
+  source = "tfstate"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Never scale this to zero and never run two. Two machines means two volumes
+  # means two different answers to "what is the current state".
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/healthz"
+
+# Set the secret once:  fly secrets set STATE_SHARED_SECRET=$(openssl rand -hex 32)

@@ -1,0 +1,510 @@
+<title>Namespace Control Plane Workshop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --ink:#10141c; --paper:#f6f8fa; --surface:#ffffff; --surface-2:#eef2f5;
+  --rule:#d3dbe2; --rule-strong:#b4c0cb; --muted:#5a6779;
+  --accent:#0d6f7a; --accent-soft:#e0f0f2; --accent-ink:#075158;
+  --amber:#8f5a0b; --amber-soft:#faf0dd; --amber-rule:#e0c391;
+  --display:"Archivo",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --measure:46rem; --wide:62rem;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#e7edf3; --paper:#0b0f13; --surface:#131a21; --surface-2:#1a232c;
+    --rule:#25313b; --rule-strong:#394855; --muted:#8d9caa;
+    --accent:#43c6d1; --accent-soft:#102a2e; --accent-ink:#7fdce4;
+    --amber:#d69c4f; --amber-soft:#251b0d; --amber-rule:#4d3a1a;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#e7edf3; --paper:#0b0f13; --surface:#131a21; --surface-2:#1a232c;
+  --rule:#25313b; --rule-strong:#394855; --muted:#8d9caa;
+  --accent:#43c6d1; --accent-soft:#102a2e; --accent-ink:#7fdce4;
+  --amber:#d69c4f; --amber-soft:#251b0d; --amber-rule:#4d3a1a;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--body); font-size:1.0625rem; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--wide); margin:0 auto; padding:0 1.5rem 6rem}
+.col{max-width:var(--measure)}
+h1,h2,h3,h4,.label,.eyebrow{font-family:var(--display); text-wrap:balance}
+h1{font-size:clamp(2.05rem,5.2vw,3.05rem); line-height:1.06; font-weight:700; letter-spacing:-.024em; margin:0}
+h2{font-size:clamp(1.42rem,2.9vw,1.78rem); line-height:1.15; font-weight:700; letter-spacing:-.017em; margin:0}
+h3{font-size:1.09rem; line-height:1.3; font-weight:600; letter-spacing:-.008em; margin:0}
+p{margin:0}
+a{color:var(--accent-ink); text-decoration-thickness:1px; text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+code{font-family:var(--mono); font-size:.855em; background:var(--surface-2); padding:.1em .34em; border-radius:3px}
+strong{font-weight:600}
+.eyebrow{
+  font-size:.7rem; font-weight:600; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--accent-ink);
+}
+
+/* ---- masthead ---- */
+header.top{border-bottom:1px solid var(--rule); margin-bottom:3.25rem}
+.top .wrap{display:flex; flex-direction:column; gap:1.35rem; padding-top:3.5rem; padding-bottom:2.5rem}
+.deck{font-size:1.16rem; color:var(--muted); max-width:38rem}
+.chips{display:flex; flex-wrap:wrap; gap:.45rem}
+.chip{
+  font-family:var(--display); font-size:.715rem; font-weight:600; letter-spacing:.075em;
+  text-transform:uppercase; color:var(--muted);
+  border:1px solid var(--rule); border-radius:100px; padding:.3rem .68rem; background:var(--surface);
+}
+.toc{display:flex; flex-wrap:wrap; gap:.15rem .95rem; font-family:var(--display); font-size:.815rem}
+.toc a{color:var(--muted); text-decoration:none; border-bottom:1px solid transparent; padding-bottom:1px}
+.toc a:hover{color:var(--accent-ink); border-bottom-color:var(--accent)}
+
+/* ---- rhythm ---- */
+section{display:flex; flex-direction:column; gap:1.1rem; margin-bottom:3.5rem; scroll-margin-top:1.5rem}
+.sechead{display:flex; flex-direction:column; gap:.4rem; border-top:2px solid var(--ink); padding-top:.85rem}
+.stack{display:flex; flex-direction:column; gap:1.05rem}
+
+/* ---- callout ---- */
+.callout{
+  background:var(--amber-soft); border:1px solid var(--amber-rule);
+  border-radius:6px; padding:1.35rem 1.5rem;
+  display:flex; flex-direction:column; gap:.7rem;
+}
+.callout .eyebrow{color:var(--amber)}
+.callout ol{margin:0; padding-left:1.3rem; display:flex; flex-direction:column; gap:.5rem}
+
+.pull{
+  border-left:3px solid var(--accent); padding:.15rem 0 .15rem 1.25rem;
+  font-size:1.14rem; font-style:italic; color:var(--ink);
+  display:flex; flex-direction:column; gap:.5rem;
+}
+.pull cite{font-family:var(--display); font-style:normal; font-size:.755rem; font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+
+/* ---- diagram ---- */
+.diagram-scroll{overflow-x:auto; padding-bottom:.4rem}
+.planes{display:grid; grid-template-columns:repeat(3,minmax(190px,1fr)); gap:1rem; min-width:620px}
+.plane{display:flex; flex-direction:column; gap:.5rem}
+.plane-head{display:flex; flex-direction:column; gap:.12rem; padding-bottom:.5rem; border-bottom:1px solid var(--rule-strong)}
+.plane-head .name{font-family:var(--display); font-size:.775rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase}
+.plane-head .lang{font-family:var(--mono); font-size:.71rem; color:var(--muted)}
+.node{
+  background:var(--surface); border:1px solid var(--rule); border-radius:4px;
+  padding:.6rem .75rem; display:flex; flex-direction:column; gap:.18rem;
+}
+.node.key{border-color:var(--accent); background:var(--accent-soft)}
+.node .t{font-family:var(--mono); font-size:.775rem; font-weight:500}
+.node .s{font-size:.82rem; line-height:1.4; color:var(--muted)}
+.support{
+  margin-top:1rem; min-width:620px; border:1px dashed var(--rule-strong); border-radius:4px;
+  padding:.9rem 1rem; display:flex; flex-direction:column; gap:.55rem;
+}
+.support .eyebrow{color:var(--muted)}
+.support-row{display:grid; grid-template-columns:1fr 1fr; gap:.75rem}
+
+/* ---- rule cards ---- */
+.rules{display:flex; flex-direction:column; gap:1rem}
+.rule{
+  background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--accent);
+  border-radius:4px; padding:1.15rem 1.35rem; display:flex; flex-direction:column; gap:.55rem;
+}
+.rule .guarantee{font-family:var(--display); font-size:.7rem; font-weight:600; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted)}
+.rule p{max-width:44rem}
+
+/* ---- tables ---- */
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse; width:100%; font-size:.925rem; min-width:30rem}
+th,td{text-align:left; padding:.62rem .8rem; border-bottom:1px solid var(--rule); vertical-align:top}
+th{font-family:var(--display); font-size:.7rem; font-weight:600; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--rule-strong)}
+td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+
+/* ---- challenges ---- */
+.arc{display:flex; flex-direction:column; gap:0}
+.step{display:grid; grid-template-columns:2.6rem 1fr; gap:1.1rem; padding:1.25rem 0; border-top:1px solid var(--rule)}
+.step:first-child{border-top:1px solid var(--rule-strong)}
+.step-n{font-family:var(--display); font-size:1.5rem; font-weight:700; color:var(--accent);
+  line-height:1; font-variant-numeric:tabular-nums}
+.step-body{display:flex; flex-direction:column; gap:.5rem; max-width:44rem}
+.graded{font-size:.875rem; color:var(--muted)}
+.graded b{font-family:var(--display); font-size:.685rem; font-weight:600; letter-spacing:.11em;
+  text-transform:uppercase; color:var(--accent-ink); margin-right:.4rem}
+
+ul.plain{margin:0; padding-left:1.25rem; display:flex; flex-direction:column; gap:.42rem}
+
+footer{border-top:1px solid var(--rule); margin-top:1rem}
+footer .wrap{padding-top:1.6rem; padding-bottom:3rem}
+footer p{font-size:.85rem; color:var(--muted)}
+
+@media (max-width:640px){
+  .planes{grid-template-columns:1fr; min-width:0}
+  .support,.support-row{min-width:0; grid-template-columns:1fr}
+  .step{grid-template-columns:1.9rem 1fr; gap:.85rem}
+  .step-n{font-size:1.2rem}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Workshop design &middot; settled, pre-implementation</p>
+    <h1>Namespace Control&nbsp;Plane</h1>
+    <p class="deck">A five-challenge Instruqt track in which platform engineers build a control plane for Temporal Cloud &mdash; a CLI that generates specs, a reconciler that interprets them as Temporal workflows, and a paved road ending with a developer&rsquo;s worker on Kubernetes.</p>
+    <div class="chips">
+      <span class="chip">15 students</span>
+      <span class="chip">5 challenges &middot; ~4h</span>
+      <span class="chip">Self-paced capable</span>
+      <span class="chip">Go platform &middot; Python product</span>
+      <span class="chip">No code yet</span>
+    </div>
+    <nav class="toc">
+      <a href="#path">Critical path</a>
+      <a href="#thesis">Thesis</a>
+      <a href="#arch">Architecture</a>
+      <a href="#rules">Seven rules</a>
+      <a href="#specs">Specs</a>
+      <a href="#identity">Identity</a>
+      <a href="#arc">Challenges</a>
+      <a href="#services">Services</a>
+      <a href="#sandbox">Sandbox</a>
+      <a href="#numbers">Numbers</a>
+      <a href="#nongoals">Non-goals</a>
+      <a href="#risks">Risks</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="path">
+    <div class="callout">
+      <p class="eyebrow">Start today &mdash; everything else is code</p>
+      <ol>
+        <li><strong>SAML enablement.</strong> SSO is <em>not self-service</em>: the ticket needs the IdP sign-in URL, the X.509 certificate in PEM, and the IdP domain to map. Fold in three more asks &mdash; disable social logins, confirm the acceptance question below, and the namespace quota. Plan coverage is confirmed.</li>
+        <li><strong>Namespace quota for 40.</strong> The default is 10; the portal needed two weeks&rsquo; lead time, and this design provisions two namespaces per student.</li>
+        <li><strong>Okta developer tenant and the domain.</strong> Free, self-service, and the only critical-path item entirely under your control.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="thesis">
+    <div class="sechead"><p class="eyebrow">Thesis</p><h2>The platform path makes it repeatable</h2></div>
+    <div class="col stack">
+      <div class="pull">
+        <p>Temporal makes durable execution possible, but the platform path makes it repeatable.</p>
+        <cite>OpenAI @ Replay 2026 &mdash; From Adoption to Production at Scale</cite>
+      </div>
+      <p>Most Temporal training teaches you to write a workflow. This teaches you to build the platform underneath it. The north star is the talk&rsquo;s own headline metric &mdash; <strong>time-to-first-workflow, from one-to-two weeks down to minutes</strong> &mdash; and the final challenge measures it with a stopwatch.</p>
+      <p>The architecture takes one deliberate position against its own source material. OpenAI replaced Terraform with a Kubernetes operator because Terraform was making them slow. We keep Terraform as the execution engine inside a single activity, and build the control loop as a <strong>Temporal entity workflow instead of a k8s controller</strong> &mdash; because a workflow is a strictly better operator: durable by construction, retryable, auditable, and able to wait on a human. That claim is a ten-minute discussion in challenge 5, not a lab.</p>
+    </div>
+  </section>
+
+  <section id="arch">
+    <div class="sechead"><p class="eyebrow">Architecture</p><h2>Three planes, two workers, one seam</h2></div>
+    <div class="col"><p>Go for the platform, Python for the product &mdash; the OpenAI split exactly, and it puts the language seam on the boundary the workshop is teaching rather than in an arbitrary place.</p></div>
+
+    <div class="diagram-scroll">
+      <div class="planes">
+        <div class="plane">
+          <div class="plane-head"><span class="name">Product surface</span><span class="lang">python</span></div>
+          <div class="node"><span class="t">@workflow.defn</span><span class="s">Extended to declare its own task queue and namespace</span></div>
+          <div class="node"><span class="t">gen-config</span><span class="s">Imports the modules, emits worker config from the live registry</span></div>
+          <div class="node key"><span class="t">managed worker</span><span class="s">Validates its config on boot. Deployed to k3s in challenge 4</span></div>
+        </div>
+        <div class="plane">
+          <div class="plane-head"><span class="name">Platform control plane</span><span class="lang">go</span></div>
+          <div class="node"><span class="t">nsctl</span><span class="s">Interactive wizard, plus a flag for every prompt. Writes <code>specs/*.yaml</code></span></div>
+          <div class="node key"><span class="t">reconciler workflow</span><span class="s">Entity workflow per logical namespace, child per environment</span></div>
+          <div class="node"><span class="t">terraform activity</span><span class="s">Ports temporal-terraform-demo nearly verbatim, AttemptImport included</span></div>
+          <div class="node"><span class="t">mint-key activity</span><span class="s">Cloud Ops API direct to Vault. Returns a path, never a token</span></div>
+        </div>
+        <div class="plane">
+          <div class="plane-head"><span class="name">Temporal Cloud</span><span class="lang">provisioned</span></div>
+          <div class="node"><span class="t">namespace &times; 2</span><span class="s">staging and prod, one region, from one logical spec</span></div>
+          <div class="node"><span class="t">service account</span><span class="s">Namespace-scoped, write permission, data plane only</span></div>
+          <div class="node"><span class="t">api key</span><span class="s">Minted outside Terraform, delivered via Vault</span></div>
+          <div class="node"><span class="t">namespace tags</span><span class="s">Owner, tier, track-run id</span></div>
+        </div>
+      </div>
+
+      <div class="support">
+        <p class="eyebrow">Supporting services and identity</p>
+        <div class="support-row">
+          <div class="node"><span class="t">tfstate service</span><span class="s">HTTP backend, per-student partition, volume-backed, deliberately no locking</span></div>
+          <div class="node"><span class="t">okta tenant</span><span class="s">SAML IdP. 15 fixed slot-bound identities, no mail anywhere</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col stack">
+      <h3>Two workers, two roles</h3>
+      <p>Only the managed worker moves to Kubernetes. A control plane is central infrastructure that already exists; the managed worker is the per-team artifact the platform produces. So challenge 4 reads as <em>&ldquo;your platform deployed someone else&rsquo;s worker&rdquo;</em> &mdash; the paved road working &mdash; rather than a redeployment of your own.</p>
+    </div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Worker</th><th>Language</th><th>Hosts</th><th>Runs on</th></tr></thead>
+        <tbody>
+          <tr><td>Platform worker</td><td>Go</td><td>Reconciler workflows, Terraform and mint-key activities</td><td><code>temporal server start-dev</code>, pointed at the control-plane namespace the student&rsquo;s own CLI provisioned in challenge 1</td></tr>
+          <tr><td>Managed worker</td><td>Python</td><td>The developer&rsquo;s decorated workflows</td><td>k3s in the sandbox, deployed by the platform</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col"><p>The control plane running on a namespace it provisioned itself is the bootstrap punchline: <strong>the control plane&rsquo;s first customer is itself.</strong></p></div>
+  </section>
+
+  <section id="rules">
+    <div class="sechead"><p class="eyebrow">Seven rules</p><h2>What the design guarantees, and why</h2></div>
+    <div class="rules">
+
+      <article class="rule">
+        <p class="guarantee">Guarantees single-writer per resource</p>
+        <h3>Workflow ID is the resource identity, so Temporal is the lock</h3>
+        <p>One entity workflow per logical namespace, keyed on its name and started with <code>signal-with-start</code>; one child per physical namespace. Temporal&rsquo;s own workflow-ID uniqueness constraint gives single-writer-per-resource for free.</p>
+        <p>Therefore: no lock table, no lease, no <code>terraform force-unlock</code>, and the state service implements <strong>no <code>LOCK</code>/<code>UNLOCK</code> endpoints at all</strong>. Terraform&rsquo;s <code>http</code> backend treats locking as optional &mdash; omit <code>lock_address</code> and it never locks. Leave a comment saying why: a student who notices and asks &ldquo;isn&rsquo;t that dangerous?&rdquo; is one question from the best insight in the workshop.</p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees no secret in state or event history</p>
+        <h3>Credentials never pass through Terraform</h3>
+        <p><code>temporalcloud_apikey</code> exposes <code>.token</code> as a readable attribute, and <code>sensitive = true</code> masks CLI output without encrypting state. Minting keys in Terraform would put every student&rsquo;s live credential in plaintext on a Fly volume.</p>
+        <p>So keys are not a Terraform resource. A separate activity calls the Cloud Ops API, writes to Vault, and returns <strong>a Vault path and a key id &mdash; never the token</strong>. One rule, three problems solved: nothing sensitive in state, nothing sensitive in event history, and rotation stops being state surgery. It also draws the Terraform-versus-API boundary where a real platform team draws it, since <code>terraform destroy</code> would otherwise revoke every worker&rsquo;s auth.</p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees least privilege that actually works</p>
+        <h3>A Developer-role service account is exactly sufficient</h3>
+        <p>Verified against the permissions reference: Developer can create namespaces and receives Namespace Admin on the ones it creates &mdash; which is precisely what is required to manage namespace-scoped service accounts, mint their keys, and set tags. The platform needs <strong>no account-admin power</strong>. This is also why <code>metrics_endpoint</code> fell out of scope: it needs an account-scoped identity the platform deliberately lacks.</p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees config cannot drift from code</p>
+        <h3>Config is generated from the decorated workflow</h3>
+        <p>The decorated workflow is the source of truth. <code>gen-config</code> imports the modules and emits worker config from the live registry. Python owns it because that is where the decorators are; <code>nsctl worker gen-config</code> is a <strong>fa&ccedil;ade that shells out</strong> &mdash; better UX, and a real lesson: a platform CLI is a user interface, not a place where logic lives.</p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees a missing registration is loud</p>
+        <h3>The worker refuses to start on a config mismatch</h3>
+        <p>On boot the managed worker compares its config against the workflows it actually registered, and <strong>exits non-zero naming the discrepancy</strong>. Not a warning &mdash; a warning in a pod&rsquo;s logs is a warning nobody reads. This is the direct fix for the failure the talk names: <em>&ldquo;always register that workflow at bootstrap; often times people miss that.&rdquo;</em></p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees drift is caught, not just intent</p>
+        <h3>Intent arrives by signal; reality arrives by timer</h3>
+        <p>Both transports, deliberately. A git post-commit hook signals the reconciler so students get instant feedback; a durable timer poll catches what nobody committed. The distinction <em>is</em> the lesson &mdash; signals carry intent, the timer catches drift.</p>
+      </article>
+
+      <article class="rule">
+        <p class="guarantee">Guarantees the contract sits where languages meet</p>
+        <h3>The schema guards the worker config, not the spec</h3>
+        <p>The namespace spec never leaves Go, so a schema file there is overhead. What crosses the seam is the worker config: emitted by Python, consumed by the Python worker on boot <em>and</em> by the Go CLI when it templates a manifest. <code>schema.json</code> and the golden round-trip fixture guard that file only.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <section id="specs">
+    <div class="sechead"><p class="eyebrow">Specs</p><h2>What a spec says, and what it creates</h2></div>
+    <div class="col"><p>Written by the CLI&rsquo;s interactive wizard, with fields following the talk&rsquo;s own tool. The wizard is the demo-able artifact that makes the platform feel like a product; the flags are what make it gradable, scriptable and copy-pasteable from an assignment page. Every real platform CLI has both.</p></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="num">name</td><td>Logical name. One spec fans out to two physical namespaces.</td></tr>
+          <tr><td class="num">owner</td><td>Who to page. Drives access grants and, in a real platform, alert routing.</td></tr>
+          <tr><td class="num">tier</td><td>Policy hook. Nothing consumes it yet &mdash; its presence teaches spec-as-policy.</td></tr>
+          <tr><td class="num">retention</td><td>Days.</td></tr>
+          <tr><td class="num">environments</td><td><code>[staging, prod]</code>. One region.</td></tr>
+          <tr><td class="num">stateBackend</td><td><code>http</code> by default, or <code>local</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col stack">
+      <h3>Resources, in and out</h3>
+      <p><strong>In:</strong> <code>temporalcloud_namespace</code>, namespace-scoped <code>temporalcloud_service_account</code>, <code>temporalcloud_namespace_tags</code>. API keys are minted outside Terraform.</p>
+      <p><strong>Out, with reasons:</strong> <code>group</code> and <code>group_access</code> need an IdP story the workshop does not have; <code>nexus_endpoint</code> names are account-global and a collision minefield across a self-paced cohort; <code>metrics_endpoint</code> needs account-scoped access the platform identity deliberately lacks.</p>
+    </div>
+  </section>
+
+  <section id="identity">
+    <div class="sechead"><p class="eyebrow">Identity</p><h2>Who holds what, and the asymmetry that teaches</h2></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Principal</th><th>Role</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Platform service account</td><td><strong>Developer</strong></td><td>Least privilege, and provably sufficient</td></tr>
+          <tr><td>Student user</td><td><strong>Global Admin</strong></td><td>Needed to see namespaces the platform created; challenge 5 depends on it</td></tr>
+          <tr><td>Managed worker SA</td><td>Namespace-scoped, write</td><td>Data plane only &mdash; polls a queue, completes tasks</td></tr>
+          <tr><td>Grader</td><td>Account-scoped read</td><td>Portal precedent, read-only wrapper</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col stack">
+      <p>The asymmetry between the first two rows is a teaching beat, not an embarrassment: <em>&ldquo;You hold Global Admin because this is a workshop and you need to see everything. Your platform holds Developer because that is what production looks like &mdash; and notice it was enough.&rdquo;</em></p>
+      <p>Granting a user namespace access is a user-management operation requiring Global Admin, so the platform cannot do it. The alternative &mdash; an elevated account-admin credential inside the reconcile path &mdash; would reintroduce exactly the second credential the portal deliberately deleted from its <code>providers.tf</code>.</p>
+      <p>Students authenticate by SAML against an Okta tenant rather than an emailed invite link. The role assignments above are unchanged.</p>
+    </div>
+  </section>
+
+  <section id="arc">
+    <div class="sechead"><p class="eyebrow">The arc</p><h2>Five challenges</h2></div>
+    <div class="arc">
+
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-body">
+          <h3>Spec to workflow</h3>
+          <p>Write the spec schema. <code>nsctl apply -f</code> starts a workflow, one activity runs Terraform, one namespace appears. Imperative on purpose &mdash; a student&rsquo;s first twenty minutes need a visible win, and a declarative loop that silently does nothing has four candidate failure points.</p>
+          <p class="graded"><b>Graded</b>Namespace exists with the right retention, via Ops API.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-body">
+          <h3>Fan-out and identity</h3>
+          <p>Parent entity workflow, one child per environment. A namespace-scoped service account per environment; the API key minted outside Terraform and written to Vault, the activity returning only a path.</p>
+          <p class="graded"><b>Graded</b>Two namespaces and two service accounts via Ops API; the Vault path resolves.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-body">
+          <h3>Invert to declarative</h3>
+          <p>Same activities, new driver: commit the spec, the hook signals, the reconciler reconciles. Change retention in the Cloud UI behind its back and watch the timer catch the drift. Delete an environment and watch the cleanup.</p>
+          <p class="graded"><b>Graded</b>Query the reconciler for a drift-corrected result.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">4</div>
+        <div class="step-body">
+          <h3>The paved road</h3>
+          <p>A decorated workflow declares its own queue and namespace; <code>gen-config</code> emits the worker config; <code>nsctl</code> templates the manifest; the worker lands on k3s. Vault auth switches from root token to Kubernetes auth as a graded step &mdash; the one moment where &ldquo;the worker moved into the cluster&rdquo; has a consequence the student must handle rather than observe.</p>
+          <p class="graded"><b>Graded</b>Worker pod healthy, polling the right queue in the right namespace.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-n">5</div>
+        <div class="step-body">
+          <h3>Be the developer &mdash; stopwatch</h3>
+          <p>New persona, empty directory, timed. From nothing to a completed workflow using only the platform you built. Then ten minutes on why OpenAI abandoned Terraform for an operator, and what a Temporal-based control loop gets right that a k8s controller cannot.</p>
+          <p class="graded"><b>Graded</b>A workflow completed in the provisioned namespace within N minutes of the challenge starting.</p>
+        </div>
+      </div>
+
+    </div>
+    <div class="col stack">
+      <h3>Grading strategy</h3>
+      <p>Three layers. Cloud-side state via the <strong>Ops API</strong>, following the portal&rsquo;s approach. Platform-side behaviour by <strong>Query on the student&rsquo;s own reconciler workflow</strong> &mdash; drift detection is invisible to the Ops API but plainly readable from workflow state, and it costs one Query handler. And the stopwatch, which makes the thesis measurable.</p>
+      <p>Self-paced means nothing can be graded by walking the room. The portal&rsquo;s sharp edge #7a admits its Grafana dashboard was unverifiable and the mitigation was &ldquo;look at screens.&rdquo; That option does not exist here, so every checkpoint must be machine-verifiable from the Ops API or from inside the sandbox.</p>
+      <p>Challenge 4 is the fattest and least forgiving &mdash; every failure there is a container failure rather than a platform lesson. Mitigation: the worker image is <strong>pre-built and pre-imported into k3s</strong> during provisioning, so the challenge is configuration and deployment, not <code>docker build</code>.</p>
+    </div>
+  </section>
+
+  <section id="services">
+    <div class="sechead"><p class="eyebrow">Supporting services</p><h2>One service, one IdP, no mail</h2></div>
+    <div class="col stack">
+      <h3>Terraform state service</h3>
+      <p>An HTTP backend &mdash; <code>GET</code>, <code>POST</code>, <code>DELETE</code>, basic auth, volume-backed. Partitioned by path as <code>/state/&lt;participant&gt;/&lt;logical&gt;/&lt;env&gt;</code>, with a per-student bearer token minted at sandbox setup and injected as <code>TF_HTTP_PASSWORD</code>. Remote state also means a student who restarts their sandbox keeps their work.</p>
+      <p>The <strong>local file backend is retained as a working implementation</strong>, selected by <code>stateBackend: local</code>. Not for production &mdash; because it is the only thing a student can debug when the Fly service is unreachable, and egress failure is the portal&rsquo;s documented number-one sandbox complaint.</p>
+      <p>A single Fly machine makes &ldquo;apply succeeded, state write failed&rdquo; <em>more</em> likely than the demo&rsquo;s original S3 design did. That is exactly why <code>AttemptImport</code> ports over rather than being dropped: it re-adopts orphaned resources instead of duplicating them.</p>
+
+      <h3>Identity via SAML</h3>
+      <p><strong>No mail anywhere in this design.</strong> Students authenticate against an <strong>Okta developer tenant</strong> configured as the account&rsquo;s SAML IdP. Temporal still sends an invitation email when the user is created; nobody ever reads it. That also dissolves the constraint which motivated a relay in the first place &mdash; one address maps to one Temporal Cloud account permanently, so a platform engineer whose work address already sits in another account is un-invitable. Under SAML the address is a workshop-owned identifier, not their real mailbox.</p>
+      <ul class="plain">
+        <li><strong>15 fixed identities</strong>, <code>student-NN@domain</code>, <strong>bound to the slot pool</strong>. Slot 7 owns <code>ws-7-staging</code>, <code>ws-7-prod</code> and <code>student-07@domain</code> &mdash; one lease derives everything, and identities are reused across cohorts rather than recreated.</li>
+        <li>Provisioned with <code>temporalcloud_user</code> in Terraform. Pleasingly on-thesis: the workshop&rsquo;s own attendee identities are provisioned as code.</li>
+        <li><strong>Okta is the kill switch.</strong> The reaper deactivates the Okta user &mdash; instant, and no Cloud API call. Cloud user records persist between cohorts.</li>
+        <li><strong>SCIM is not needed.</strong> Fifteen fixed identities provisioned once need no lifecycle sync, and it is Enterprise-tier or a $500/month Business add-on.</li>
+        <li>Ask support to <strong>disable social logins</strong>, so there is exactly one login path and nobody lands on &ldquo;Continue with Google&rdquo;.</li>
+        <li>Okta developer edition over Entra ID, which gates SAML for custom apps behind a paid tier, and over Google Workspace, whose Temporal setup instructions are still being written.</li>
+      </ul>
+      <p>The domain is needed only as an identifier namespace and for the IdP-domain mapping support asks for. <strong>No MX, no SPF, no DKIM, no mailbox.</strong></p>
+      <p><strong>This design is contingent on one unverified claim.</strong> Temporal support has stated that JIT account creation is <em>not</em> supported, so users must be created before they can sign in &mdash; fine, the control plane creates them. What is not yet confirmed is whether a created-but-never-accepted user can complete a SAML login without opening the invitation email. Ask before building; if acceptance is required, the mail relay returns.</p>
+    </div>
+  </section>
+
+  <section id="sandbox">
+    <div class="sechead"><p class="eyebrow">Sandbox</p><h2>Prebuild aggressively</h2></div>
+    <div class="col stack">
+      <p><code>n1-standard-4</code>, 16&nbsp;GB, k3s. The portal&rsquo;s build already needs this for uv, Docker and code-server; this one drops Prometheus and Grafana but adds a Go toolchain, k3s and Vault.</p>
+      <ul class="plain">
+        <li>Go toolchain; <code>uv sync</code> complete</li>
+        <li><code>terraform</code> plus a <strong>warm provider plugin cache</strong> &mdash; a cold <code>terraform init</code> against <code>temporalio/temporalcloud</code> is a silent two-minute stall on challenge 1</li>
+        <li>Vault binary; k3s installed but <strong>not started</strong></li>
+        <li>The managed worker image <strong>built and imported into k3s&rsquo;s image store</strong></li>
+      </ul>
+      <p>k3s over k3d: the Kubernetes-auth switch in challenge 4 is more honest against a real kubelet, and nothing is torn down repeatedly. Measure the boot rather than guessing &mdash; the portal&rsquo;s loading messages exist because that build is already slow.</p>
+    </div>
+  </section>
+
+  <section id="numbers">
+    <div class="sechead"><p class="eyebrow">Numbers</p><h2>Quotas, names and reaping</h2></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Item</th><th>Value</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Students</td><td class="num">15</td><td>Self-paced, so arrivals overlap unpredictably</td></tr>
+          <tr><td>Namespaces per student</td><td class="num">2</td><td>staging + prod, one region</td></tr>
+          <tr><td><strong>Namespace quota to request</strong></td><td class="num"><strong>40</strong></td><td>Default is 10; headroom for overlap and your own testing</td></tr>
+          <tr><td>Cloud metrics budget</td><td class="num">180 / hr</td><td>Per <em>account</em>. Largely moot &mdash; metrics endpoints are out of scope</td></tr>
+          <tr><td>Okta developer tenant</td><td class="num">1</td><td>Free. 15 fixed identities, reused across cohorts</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="col stack">
+      <p><strong>Name recycling.</strong> Temporal Cloud reserves namespace names after deletion, so names must not derive from participant ids &mdash; a naive scheme burns names permanently. Physical names are <code>ws-&lt;slot&gt;-&lt;env&gt;</code>, where <code>slot</code> is a small integer <strong>leased from a pool workflow</strong>. Slot 7 is reused by design, so reserved-after-deletion stops mattering.</p>
+      <p><strong>Reaping.</strong> A reaper workflow &mdash; not a script &mdash; keyed to the participant id, holding a TTL, accepting the same <code>extendMs</code> and <code>revoke</code> signals the portal&rsquo;s <code>invitation</code> workflow already has. Abandoned sandboxes must return their slots to the pool.</p>
+    </div>
+  </section>
+
+  <section id="nongoals">
+    <div class="sechead"><p class="eyebrow">Non-goals</p><h2>Excluded on purpose</h2></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Excluded</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>The Go proxy from the talk</td><td>The most seductive and wrongest choice &mdash; a week of work teaching gRPC interception, not platform design. Ten-minute discussion instead</td></tr>
+          <tr><td>Kubernetes operator</td><td>The whole point is that a Temporal workflow is the better control loop</td></tr>
+          <tr><td>Terraform state locking</td><td>The absence <em>is</em> the lesson</td></tr>
+          <tr><td>Self-hosted Temporal via Helm</td><td>Fifteen minutes and 8&nbsp;GB to teach nothing about platform engineering</td></tr>
+          <tr><td>Worker versioning</td><td>Even OpenAI skipped it; replay testing in CI is the transferable lesson</td></tr>
+          <tr><td>Scaffolding a developer&rsquo;s repo</td><td>Doubles the build and adds a second control loop</td></tr>
+          <tr><td>Groups, Nexus, metrics endpoints</td><td>IdP story absent, account-global name collisions, account-scoped access absent</td></tr>
+          <tr><td>Mail relay, Postmark, Google Workspace</td><td>Replaced by SAML &mdash; no inbound mail anywhere in the design</td></tr>
+          <tr><td>SCIM</td><td>Fifteen fixed identities provisioned once need no lifecycle sync; Enterprise-tier or a $500/month add-on</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="risks">
+    <div class="sechead"><p class="eyebrow">Risks</p><h2>What is still likely to bite</h2></div>
+    <div class="col">
+      <ul class="plain">
+        <li><strong>Challenge 4 remains the fattest slot</strong> even with the image pre-built. Watch it in the first dry run; the fallback is splitting it across 4 and 5, which costs the stopwatch.</li>
+        <li><strong>Students hold Global Admin.</strong> The same blast radius the portal already accepts, mitigated by slot names and the reaper. A griefing student can delete another&rsquo;s namespaces.</li>
+        <li><strong>Single-machine state service.</strong> Mitigated by <code>AttemptImport</code>, but a Fly deploy mid-workshop will fail somebody&rsquo;s apply.</li>
+        <li><strong>Sandbox boot time is unmeasured</strong> and the prebuild list is long.</li>
+        <li><strong>One unverified assumption gates the whole identity design.</strong> Whether a pre-created, never-accepted user can complete a SAML login without opening the invitation email is unconfirmed. Ask first &mdash; if the answer is no, the mail relay returns and Google Workspace rejoins the critical path.</li>
+        <li><strong>Okta becomes the access control plane.</strong> Between cohorts, 15 standing Global Admin users sit in the account gated only by Okta. A misconfigured tenant is a live-credential problem, not an inconvenience.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap"><p>Settled across six rounds of design review. Source material: <em>temporal-cloud-training-portal</em> (sandbox, grading, invite lifecycle), <em>temporal-terraform-demo</em> (Terraform-in-activity), and <em>OpenAI @ Replay 2026</em>.</p></div>
+</footer>

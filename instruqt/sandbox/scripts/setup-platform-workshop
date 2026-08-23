@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Sandbox prebuild.
+#
+# Everything slow happens here so that challenge 1 starts with `nsctl new` rather
+# than with a toolchain download. The single most important line is the warm
+# provider cache: a cold `terraform init` against temporalio/temporalcloud is a
+# silent two-minute stall on the student's very first apply, and it looks like a
+# hung workflow.
+set -euo pipefail
+
+log() { printf '\n=== %s\n' "$*"; }
+WORKSHOP_DIR="${WORKSHOP_DIR:-/workspace/platform}"
+
+log "system packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl git jq unzip ca-certificates >/dev/null
+
+log "go toolchain"
+GO_VERSION=1.25.4
+curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+export PATH=/usr/local/go/bin:$PATH
+echo 'export PATH=/usr/local/go/bin:$PATH' >> /root/.bashrc
+
+log "uv"
+curl -fsSL https://astral.sh/uv/install.sh | sh
+export PATH="/root/.local/bin:$PATH"
+echo 'export PATH=/root/.local/bin:$PATH' >> /root/.bashrc
+
+log "terraform"
+TF_VERSION=1.9.8
+curl -fsSL -o /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+unzip -q -o /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip
+
+log "vault"
+VAULT_VERSION=1.18.3
+curl -fsSL -o /tmp/vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
+unzip -q -o /tmp/vault.zip -d /usr/local/bin && rm /tmp/vault.zip
+
+log "temporal cli"
+curl -fsSL https://temporal.download/cli.sh | sh -s -- --dir /usr/local
+ln -sf /usr/local/bin/temporal /usr/bin/temporal 2>/dev/null || true
+
+log "k3s (installed, not started -- challenge 4 starts it)"
+curl -fsSL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh -
+
+log "clone the platform"
+mkdir -p "$(dirname "$WORKSHOP_DIR")"
+git clone --depth 1 --branch "${LAB_REPO_REF:-main}" "${LAB_REPO_URL}" "$WORKSHOP_DIR"
+cd "$WORKSHOP_DIR"
+git config core.hooksPath hooks
+
+log "build the control plane"
+go build -o /usr/local/bin/nsctl ./cmd/nsctl
+go build -o /usr/local/bin/platform-worker ./cmd/platform-worker
+
+log "python worker dependencies"
+(cd worker && uv sync --extra dev)
+
+log "warm the terraform provider cache"
+# This is the line that makes challenge 1 feel instant instead of broken.
+mkdir -p /root/.terraform.d/plugin-cache
+echo 'plugin_cache_dir = "/root/.terraform.d/plugin-cache"' > /root/.terraformrc
+(cd terraform/namespace && terraform init -backend=false -input=false >/dev/null)
+
+log "pre-build the managed worker image and import it into k3s"
+docker build -q -t platform-worker:dev ./worker
+docker save platform-worker:dev -o /var/lib/rancher/k3s/agent/images/platform-worker.tar 2>/dev/null \
+  || { mkdir -p /var/lib/rancher/k3s/agent/images && docker save platform-worker:dev -o /var/lib/rancher/k3s/agent/images/platform-worker.tar; }
+
+log "vault, in dev mode"
+nohup vault server -dev -dev-root-token-id="${VAULT_DEV_ROOT_TOKEN_ID}" -dev-listen-address=0.0.0.0:8200 \
+  > /var/log/vault.log 2>&1 &
+export VAULT_TOKEN="${VAULT_DEV_ROOT_TOKEN_ID}"
+for _ in $(seq 1 30); do vault status >/dev/null 2>&1 && break; sleep 1; done
+
+log "seed the platform's own credential"
+# Vault's source role. The key lands here and nowhere else -- deliberately not in
+# a shell profile, because a student running `history` should not find it.
+vault kv put secret/platform/cloud-api-key api_key="${TEMPORAL_CLOUD_API_KEY}" >/dev/null
+unset TEMPORAL_CLOUD_API_KEY
+
+log "temporal dev server"
+nohup temporal server start-dev --ip 0.0.0.0 --ui-port 8233 --db-filename /var/lib/temporal.db \
+  > /var/log/temporal-dev.log 2>&1 &
+for _ in $(seq 1 60); do temporal operator namespace list >/dev/null 2>&1 && break; sleep 1; done
+
+log "platform environment"
+PARTICIPANT="${INSTRUQT_PARTICIPANT_ID:-local}"
+STATE_TOKEN=$(printf '%s' "$PARTICIPANT" | openssl dgst -sha256 -hmac "$STATE_SHARED_SECRET" -hex | awk '{print $2}' | cut -c1-40)
+install -d /etc/workshop
+cat > /etc/workshop/env <<ENV
+export WORKSHOP_DIR=$WORKSHOP_DIR
+export WORKSHOP_PARTICIPANT=$PARTICIPANT
+export WORKSHOP_RUN_ID=${INSTRUQT_TRACK_SLUG:-local}-$(date +%s)
+export STATE_SERVICE_URL=$STATE_SERVICE_URL
+export STATE_TOKEN=$STATE_TOKEN
+export VAULT_ADDR=$VAULT_ADDR
+export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
+export TEMPORAL_ADDRESS=localhost:7233
+export TEMPORAL_NAMESPACE=default
+export PATH=/usr/local/go/bin:/root/.local/bin:\$PATH
+ENV
+echo 'source /etc/workshop/env' >> /root/.bashrc
+# shellcheck disable=SC1091
+source /etc/workshop/env
+
+log "start the control plane"
+cat > /etc/systemd/system/platform-worker.service <<UNIT
+[Unit]
+Description=Temporal platform control plane
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/workshop/env.systemd
+WorkingDirectory=$WORKSHOP_DIR
+ExecStart=/usr/local/bin/platform-worker
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sed 's/^export //' /etc/workshop/env | grep -v '^\$PATH' > /etc/workshop/env.systemd
+systemctl daemon-reload && systemctl enable --now platform-worker
+
+log "lease a slot"
+# Slot, not participant id: Temporal Cloud reserves namespace names after
+# deletion, so names have to be recyclable.
+for _ in $(seq 1 20); do
+  if SLOT=$(nsctl slot lease --capacity 40 2>/dev/null); then break; fi
+  sleep 2
+done
+if [ -z "${SLOT:-}" ]; then echo "could not lease a slot" >&2; exit 1; fi
+echo "export WORKSHOP_SLOT=$SLOT" >> /etc/workshop/env
+echo "WORKSHOP_SLOT=$SLOT" >> /etc/workshop/env.systemd
+systemctl restart platform-worker
+log "slot $SLOT leased for $PARTICIPANT"
+
+log "egress probes"
+probe() {
+  if curl -fsS --max-time 10 -o /dev/null "$1"; then echo "  ok   $1"
+  elif [ "${WORKSHOP_STRICT_EGRESS:-1}" = "1" ]; then echo "  FAIL $1" >&2; return 1
+  else echo "  warn $1 (non-strict)"; fi
+}
+probe "$STATE_SERVICE_URL/healthz"
+probe "https://cloud.temporal.io"
+probe "https://saas-api.tmprl.cloud"
+
+log "ready"
