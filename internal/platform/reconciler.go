@@ -80,50 +80,32 @@ func NamespaceWorkflow(ctx workflow.Context, in ReconcileInput) error {
 			return workflow.NewContinueAsNewError(ctx, NamespaceWorkflow, desired)
 		}
 
-		timer := workflow.NewTimer(ctx, desired.DriftInterval())
-		sel := workflow.NewSelector(ctx)
+		// Signals carry intent; the timer catches reality. See wait.go.
+		event, incoming := waitForNext(ctx, applyCh, destroyCh, desired.DriftInterval())
 
-		var (
-			newDesired ReconcileInput
-			gotApply   bool
-			gotDestroy bool
-			tick       bool
-		)
-
-		sel.AddReceive(applyCh, func(c workflow.ReceiveChannel, _ bool) {
-			c.Receive(ctx, &newDesired)
-			gotApply = true
-		})
-		sel.AddReceive(destroyCh, func(c workflow.ReceiveChannel, _ bool) {
-			c.Receive(ctx, nil)
-			gotDestroy = true
-		})
-		sel.AddFuture(timer, func(workflow.Future) { tick = true })
-
-		sel.Select(ctx)
-
-		switch {
-		case gotDestroy:
+		switch event {
+		case eventDestroy:
 			log.Info("destroy requested", "spec", desired.Spec.Name)
 			status.Destroying = true
 			destroyAll(ctx, desired, applied)
 			status.Environments = sortedStatuses(applied)
 			return nil
 
-		case gotApply:
-			// A spec that has not changed does not need an apply. Without this, the
-			// git hook firing on an unrelated commit would re-apply everything.
-			if desired.Spec.Fingerprint() == newDesired.Spec.Fingerprint() {
+		case eventApply:
+			// A spec that has not changed is not intent. Without this, the git hook
+			// firing on an unrelated commit would re-apply every namespace in the
+			// repo.
+			if desired.Spec.Fingerprint() == incoming.Spec.Fingerprint() {
 				log.Info("apply signal carried no change", "spec", desired.Spec.Name)
 				continue
 			}
-			log.Info("spec changed", "spec", newDesired.Spec.Name)
-			desired = newDesired
-			status.Spec = newDesired.Spec
+			log.Info("spec changed", "spec", incoming.Spec.Name)
+			desired = incoming
+			status.Spec = incoming.Spec
 			status.Generation++
 			reconcile()
 
-		case tick:
+		case eventTick:
 			drifted, detail := detectDrift(ctx, desired)
 			if drifted {
 				status.DriftsDetected++

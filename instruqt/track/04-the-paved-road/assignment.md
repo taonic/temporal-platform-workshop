@@ -34,34 +34,38 @@ difficulty: advanced
 timelimit: 5400
 ---
 
-Open `worker/workflows/greeting.py`. That is a product team's code, in full.
+Take the platform hat off for a moment. You are the product team now.
 
-```python
-@managed_workflow(task_queue="orders-main", namespace="orders")
-class GreetingWorkflow:
+### 1. Write the workflow
+
+Open `worker/workflows/greeting.py`. Write an activity and a workflow, each
+declaring where it runs via the decorator.
+
+```bash
+cd worker && uv run pytest -m lab
 ```
 
-No namespace plumbing. No task-queue constant shared with a deployment file. No API
-key, no client construction, no Dockerfile, no manifest.
+Then read the list in that file of what you did **not** have to write: no namespace
+plumbing, no task-queue constant duplicated into a deployment file, no API key, no
+client construction, no Dockerfile, no manifest. That list is the paved road.
 
-### 1. Generate the config from the code
+### 2. Generate the config from the code
 
 ```bash
 nsctl worker gen-config --out generated/worker-config.json
 cat generated/worker-config.json
 ```
 
-Nothing in that file was hand-written. The queues came from the decorators; the
+Nothing in that file was hand-written. The queues came from your decorators; the
 owner and service name came from your spec. **Config generated from code cannot
-drift from code** — which is the failure the OpenAI talk names out loud: *"always
-register that workflow at bootstrap; often times people miss that."*
+drift from code.**
 
 Note that `nsctl` shelled out to Python. It has to: the decorators live in Python,
 so only Python can introspect them. Reimplementing that in Go would create a second
-source of truth that silently disagrees with the first. The CLI is a user interface,
-not a place where logic lives.
+source of truth that silently disagrees with the first. The CLI is a user
+interface, not a place where logic lives.
 
-### 2. Break it on purpose
+### 3. Break it on purpose
 
 Comment out the import in `worker/workflows/__init__.py` and run the worker:
 
@@ -69,11 +73,13 @@ Comment out the import in `worker/workflows/__init__.py` and run the worker:
 cd worker && uv run python -m platform_sdk.main --config ../generated/worker-config.json
 ```
 
-It refuses to start and tells you exactly what is missing. **Not a warning** — a
-warning in a pod's logs is a warning nobody reads, and the failure it would hide is
-a workflow that starts, gets scheduled, and is never picked up. Put the import back.
+It refuses to start and names exactly what is missing. **Not a warning** — a
+warning in a pod's logs is a warning nobody reads, and the failure it hides is a
+workflow that starts, gets scheduled, and is never picked up. This is the failure
+OpenAI's platform team calls out by name: *"always register that workflow at
+bootstrap; often times people miss that."* Put the import back.
 
-### 3. Deploy it
+### 4. Deploy it
 
 ```bash
 sudo systemctl start k3s
@@ -82,19 +88,18 @@ nsctl worker manifest -c generated/worker-config.json \
 sudo k3s kubectl apply -f deploy/orders-staging-worker.yaml
 ```
 
-Read the generated manifest before you apply it. There is no credential in it, and
-none in the image. Just `VAULT_K8S_ROLE` and a path.
+Read the manifest before you apply it. There is no credential in it, and none in
+the image. Just `VAULT_K8S_ROLE` and a path.
 
-### 4. Switch Vault to Kubernetes auth
+### 5. Switch Vault to Kubernetes auth
 
-Your pod will crash-loop, and it should: `VAULT_TOKEN` does not exist in there.
-This is the one moment where "the worker moved into the cluster" has a consequence
-you have to handle rather than watch.
+Your pod will crash-loop, and it should: `VAULT_TOKEN` does not exist in there. This
+is the one moment where "the worker moved into the cluster" has a consequence you
+have to handle rather than watch.
 
 ```bash
 vault auth enable kubernetes
-vault write auth/kubernetes/config \
-  kubernetes_host="https://$(hostname -i):6443"
+vault write auth/kubernetes/config kubernetes_host="https://$(hostname -i):6443"
 vault policy write worker-orders - <<POLICY
 path "secret/data/namespaces/$WORKSHOP_PARTICIPANT/orders/*" { capabilities = ["read"] }
 POLICY

@@ -24,3 +24,6 @@ packages = ["platform_sdk", "workflows"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "lab: depends on code the student writes. Fails on a fresh clone, on purpose.",
+]

@@ -34,36 +34,56 @@ difficulty: intermediate
 timelimit: 4500
 ---
 
-### 1. Deliver intent by committing
+The reconciler exists. It has the loop, the reconcile, the drift check and the
+query handler. It is missing the four lines that decide what it reacts to.
+
+### 1. Write the wait
+
+Open `internal/platform/wait.go` and write `waitForNext`. Block until one of three
+things happens — a spec arrives on `applyCh`, a destroy arrives on `destroyCh`, or
+`after` elapses — and say which.
+
+Use `workflow.NewTimer` and `workflow.NewSelector`. Not a Go `select`, not
+`time.After`: neither is deterministic, and a replay would diverge from the
+recorded history.
+
+```bash
+go test ./internal/platform/...
+```
+
+`TestReconcilerDetectsAndCorrectsDrift` proves the timer half.
+`TestReconcilerIgnoresAnApplyThatChangesNothing` proves the signal half. Nothing
+else in the reconciler needs changing — inverting an imperative script into a
+control loop is a change of driver, not a rewrite.
+
+### 2. Deliver intent by committing
 
 ```bash
 git add specs && git commit -m "ask for a namespace"
 ```
 
 The `post-commit` hook ran `nsctl sync`, which does `signal-with-start` on
-`ns-<name>`. First commit creates the reconciler; every later commit signals the
-one that already exists. **One entity workflow per logical namespace, for its whole
+`ns-<name>`. First commit creates the reconciler; every later commit signals the one
+that already exists. **One entity workflow per logical namespace, for its whole
 life.**
 
-Notice `nsctl sync` did not wait. Intent has been delivered; convergence is the
+`nsctl sync` did not wait. Intent has been delivered; convergence is the
 reconciler's problem. That difference from `nsctl apply` is this whole challenge.
 
 ```bash
 nsctl status <name>
 ```
 
-### 2. Change nothing, and watch nothing happen
+### 3. Change nothing, and watch nothing happen
 
 Commit an unrelated file. The hook fires, the reconciler is signalled, and
 `reconciles` does **not** go up — the spec fingerprint is unchanged. Without that
 check, every commit in the repo would re-apply every namespace.
 
-### 3. Now go behind the platform's back
+### 4. Now go behind the platform's back
 
-Open the **Temporal Cloud UI** in a browser, find `ws-<slot>-<name>-staging`, and
-change its retention by hand. Nobody committed anything. No signal will arrive.
-
-Wait for the drift timer.
+Open the Temporal Cloud UI, find `ws-<slot>-<name>-staging`, and change its
+retention by hand. Nobody committed anything. No signal will arrive.
 
 ```bash
 watch -n 10 'nsctl status <name>'
@@ -73,11 +93,10 @@ watch -n 10 'nsctl status <name>'
 
 **Signals carry intent; the timer catches reality.** A control plane with only
 signals converges on what people said. A control plane with a timer converges on
-what is true. You need both, and they are five lines apart in
-`internal/platform/reconciler.go`.
+what is true. You just wrote both, four lines apart.
 
-### 4. Remove an environment
+### 5. Remove an environment
 
-Delete `prod` from the spec's `environments` list, commit, and watch it be
-destroyed. Convergence means removing what is no longer desired, not only adding
-what is — the half people forget.
+Delete `prod` from the spec's `environments`, commit, and watch it be destroyed.
+Convergence means removing what is no longer desired, not only adding what is — the
+half people forget.

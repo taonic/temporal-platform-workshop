@@ -37,6 +37,42 @@ hooks/post-commit     delivers intent to the reconciler the moment it exists
 Go for the platform, Python for the product. The seam falls on the boundary the
 workshop is teaching, not in an arbitrary place.
 
+## The labs
+
+Five files are prose stubs. A student writes them; everything else is provided.
+
+| File | Challenge | What it teaches |
+|---|---|---|
+| `terraform/namespace/main.tf` + `outputs.tf` | 1 | The module, and why `temporalcloud_apikey` is not in it |
+| `internal/platform/environment.go` | 2 | The child workflow, and what a return value costs you |
+| `internal/platform/wait.go` | 3 | Signals carry intent; the timer catches reality |
+| `worker/workflows/greeting.py` | 4 | The decorator is the declaration |
+
+That ratio follows the training portal, which asks students to write **HCL** and
+hands them working Python to run — a deliberate choice about where a learner is
+allowed to fail. The two Go stubs are the exception, because the reconciler's wait
+and the fan-out child are the best lessons in the repo and reading them is not the
+same as writing them.
+
+Go stubs return a non-retryable error rather than panicking, so the message reaches
+you through the parent workflow, the CLI and the Temporal UI instead of being
+swallowed. `_solutions/` and `_stubs/` start with an underscore because the Go
+toolchain ignores such directories — otherwise `go build ./...` would compile three
+copies of package `platform`.
+
+```bash
+make test        # labs 2 and 3. Fails on a fresh clone, on purpose
+make lab-test    # lab 4. Same
+make py-test     # contract tests only: schema and golden fixture. Always green
+make solve       # instructor: put the complete versions in
+make unsolve     # put the stubs back
+make verify      # solve, build, test, validate, unsolve. This is what CI runs
+```
+
+`make verify` matters more than it looks. Solutions rot silently the first time an
+interface changes underneath them, and a workshop whose answer key no longer
+compiles is worse than one with no answer key.
+
 ## Run it locally
 
 You need Go 1.25+, Python 3.12+, `uv`, Terraform, Vault and the Temporal CLI.
@@ -69,10 +105,9 @@ watch `nsctl status <name>`.
 ## Test
 
 ```bash
-make test         # Go: spec, worker config, and the reconciler's drift loop
-make py-test      # Python: the golden fixture both languages must round-trip
-make tf-validate  # the Terraform module
+make verify       # everything, against the solutions. Start here
 make lint
+make tf-validate
 ```
 
 `worker/tests/fixtures/worker-config.json` is read by both a Go test and a Python

@@ -26,16 +26,22 @@ func ProvisionWorkflow(ctx workflow.Context, in ReconcileInput) ([]EnvStatus, er
 	statuses := reconcileEnvironments(ctx, in, nil)
 
 	failed := 0
+	firstError := ""
 	for _, s := range statuses {
 		if !s.OK {
 			failed++
+			if firstError == "" {
+				firstError = s.Env + ": " + s.Error
+			}
 		}
 	}
 	// Partial failure is a real outcome and the caller should see it per
 	// environment, so only a total failure fails the workflow. Staging can be
 	// broken while prod is fine, and hiding that behind one error would be a lie.
 	if failed == len(statuses) && failed > 0 {
-		return statuses, fmt.Errorf("all %d environments failed to provision", failed)
+		// Naming the first reason matters more than counting. "all 2 environments
+		// failed" sends someone digging through child workflows; the reason does not.
+		return statuses, fmt.Errorf("all %d environments failed to provision. First: %s", failed, firstError)
 	}
 	return statuses, nil
 }

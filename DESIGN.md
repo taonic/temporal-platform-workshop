@@ -289,6 +289,44 @@ failure rather than a platform lesson. Mitigation: the worker image is **pre-bui
 and pre-imported into k3s** during sandbox provisioning, so the challenge is
 configuration and deployment, not `docker build`.
 
+### Lab pedagogy
+
+Five files are prose stubs a student writes; everything else is provided.
+
+This follows the training portal's split, which is sharper than it first looks.
+Across its five `lab*.tf` files the portal ships **176 lines of prose and zero
+lines of code** — students write every Terraform resource. Its Python worker labs
+are the opposite: 41 to 201 code lines each, thin entrypoints over a provided
+`training/` package that students only ever *run*. It never asks anyone to write
+Python. It asks them to write the declarative, low-syntax-risk, Cloud-gradable
+layer.
+
+Applied here:
+
+| File | Challenge | Lesson |
+|---|---|---|
+| `terraform/namespace/main.tf`, `outputs.tf` | 1 | The module, and why `temporalcloud_apikey` is absent from it |
+| `internal/platform/environment.go` | 2 | The fan-out child, and what a return value costs you |
+| `internal/platform/wait.go` | 3 | Signals carry intent; the timer catches reality |
+| `worker/workflows/greeting.py` | 4 | The decorator is the declaration |
+
+Two deviations from the portal, both deliberate. **Go is stubbed at all**, against
+the portal's instinct — but the reconciler's wait and the fan-out child are the two
+best lessons in the repo, and reading them is not the same as writing them. And
+`MintNamespaceKey` is *not* stubbed even though it carries rule 2, because it is
+mostly Cloud Ops API plumbing; the same lesson lands harder in
+`EnvironmentWorkflow`, where it shows up as a decision about what to return.
+
+Mechanism: Go stubs return a non-retryable application error rather than panicking,
+so the message propagates through the parent workflow, the CLI and the Temporal UI.
+A panic would retry forever and say nothing. `_solutions/` and `_stubs/` are
+underscore-prefixed so the Go toolchain ignores them outright.
+
+The unit tests double as the student's feedback loop, which the portal has no
+equivalent of because HCL has none. `make test` and `make lab-test` therefore
+**fail on a fresh clone, on purpose**; `make verify` applies the solutions, runs
+everything and restores the stubs, and is what protects the answer key from rotting.
+
 ### Grading strategy
 
 Three layers. Cloud-side state via the **Ops API**, following the portal's
