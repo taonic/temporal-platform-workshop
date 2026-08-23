@@ -26,3 +26,6 @@ worker/.venv/
 
 node_modules/
 .next/
+
+# tsc incremental cache
+*.tsbuildinfo
