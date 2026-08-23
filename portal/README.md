@@ -139,17 +139,35 @@ one machine.
 
 ## Snippets are the answer key
 
-Each lab page carries the answer behind one `<details>`. Whole files, not fragments,
-so a student can replace what they have — and so the emit-and-compile check below
-can work at all.
+Each lab page carries the answer behind one `<details>`, **inside the step that asks
+for the file** — a student on step 2 should not have to scroll past steps 3 to 7 to
+find the configuration step 2 is talking about, and having found it, should not have
+to scroll back. A step claims a snippet by naming its `path` (or its `id`, for blocks
+with no file):
+
+```ts
+{ label: 'Write the wait', snippets: ['internal/platform/wait.go'] }
+```
+
+Anything no step claims still renders after the step list, so a snippet can never
+become invisible — the failure mode a claim-by-key scheme invites. And
+`pnpm snippets:check` fails the build on a claim that resolves to nothing, plus on a
+step whose `grades` names a checkpoint the lab does not declare. The training portal
+was bitten by the second one: the only step satisfying a checkpoint sat in a section
+its page labelled *not graded*, so a student could finish the lab as written and
+still fail the exit check.
+
+Whole files, not fragments, so a student can replace what they have — and so the
+emit-and-compile check below can work at all.
 
 The snippets in `src/course/snippets/` are the **only** copy of every answer; the
 repo has no solutions directory. Nothing compiles a TypeScript string literal, so
 the guarantee comes from round-tripping them:
 
 ```bash
+pnpm snippets:check                # every claim and grade resolves
 pnpm snippets:emit --out ..        # writes each snippet to its real path
-make verify                        # from the repo root: emit, build, test, restore
+make verify                        # from the repo root: check, emit, build, test, restore
 ```
 
 `make verify` is what CI runs. A provider bump or a changed Go signature therefore

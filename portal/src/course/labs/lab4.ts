@@ -17,6 +17,7 @@ export const lab4: LabDef = {
     {
       label: 'Write the workflow',
       command: 'code worker/workflows/greeting.py',
+      snippets: ['worker/workflows/greeting.py'],
       expect:
         'An activity and a workflow, each declaring its task queue in the decorator. Then read the ' +
         'list of what you did not have to write.',

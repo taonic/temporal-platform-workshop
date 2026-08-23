@@ -19,6 +19,7 @@ export const lab1: LabDef = {
     {
       label: 'Write the module',
       command: 'code terraform/namespace/main.tf',
+      snippets: ['terraform/namespace/main.tf', 'terraform/namespace/outputs.tf'],
       expect:
         'A comment block describing three resources and two outputs. Write them. The instruction ' +
         'worth re-reading is the one telling you what NOT to write: temporalcloud_apikey exposes ' +

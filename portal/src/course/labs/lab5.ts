@@ -19,6 +19,7 @@ export const lab5: LabDef = {
     },
     {
       label: 'Get a workflow to complete',
+      snippets: ['paved-road'],
       expect:
         'Use only what the platform gives you: nsctl, the decorators, the generated config. Do not ' +
         'open the Cloud UI, write Terraform, or touch a credential.',
@@ -45,6 +46,7 @@ export const lab5: LabDef = {
   // disclosure says so -- the point of a stopwatch is that you ran the race.
   snippets: ({ slot }) => [
     {
+      id: 'paved-road',
       lang: 'bash',
       caption: 'The whole paved road, as a developer walks it. Using this stops the clock being meaningful.',
       code: [

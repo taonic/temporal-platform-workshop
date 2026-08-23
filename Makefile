@@ -74,6 +74,7 @@ unsolve:
 # solutions directory would have been a straight downgrade, because nothing else
 # ever compiles a TypeScript string literal.
 verify:
+	cd portal && pnpm snippets:check
 	@$(MAKE) --no-print-directory solve
 	go build ./...
 	go vet ./...

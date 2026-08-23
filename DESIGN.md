@@ -323,7 +323,8 @@ A panic would retry forever and say nothing. `_stubs/` is underscore-prefixed so
 Go toolchain ignores it outright.
 
 **Where the answers live.** In the portal, as the snippets students read — one copy,
-and it is the copy they actually see. Every lab has one, behind a single click,
+and it is the copy they actually see, rendered inside the step that asks for the
+file rather than collected at the foot of the page. Every lab has one, behind a single click,
 because with no solutions directory a lab without a snippet would have no reference
 answer anywhere: not for a stuck student, not for an instructor, not for CI. The
 disclosure carries the training portal's own line, which is the right one: *type it

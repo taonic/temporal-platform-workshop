@@ -73,6 +73,8 @@ export type SnippetLang = 'hcl' | 'go' | 'python' | 'yaml' | 'bash';
 export interface Snippet {
   /** Repo-relative destination, and what emit writes. Omit for illustrative blocks. */
   path?: string;
+  /** Key a step uses to claim this block, for snippets with no path. */
+  id?: string;
   lang: SnippetLang;
   code: string;
   /** One line above the block: what this is and where it goes. */
@@ -86,6 +88,20 @@ export interface LabStep {
   expect?: string;
   /** Checkpoint id this step satisfies; rendered as a badge. */
   grades?: string;
+  /**
+   * Snippets to render inside this step rather than after the whole list, named by
+   * `path` or `id`.
+   *
+   * Set it on the step that asks for the file. A student on step 2 should not have
+   * to scroll past steps 3 to 7 to find the configuration step 2 is talking about
+   * -- and having found it, should not have to scroll back.
+   *
+   * A key that matches no snippet is a build failure, not a silently missing
+   * block: `pnpm snippets:check` asserts every claim resolves, and `make verify`
+   * runs it. Without that, renaming a file quietly detaches its answer from the
+   * step that needs it.
+   */
+  snippets?: string[];
 }
 
 export interface LabDef {

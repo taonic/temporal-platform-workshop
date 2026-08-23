@@ -9,8 +9,9 @@
     "build": "next build",
     "start": "node scripts/dev-link.mjs && next start -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm typecheck",
-    "snippets:emit": "tsx scripts/emit-snippets.ts"
+    "check": "pnpm typecheck && pnpm snippets:check",
+    "snippets:emit": "tsx scripts/emit-snippets.ts",
+    "snippets:check": "tsx scripts/check-snippets.ts"
   },
   "dependencies": {
     "@next/env": "^15.1.6",

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { LABS, lab } from '@/course';
+import { LABS, lab, snippetKey } from '@/course';
 import { snippetContext } from '@/course/naming';
 import { resolveSpecName } from '@/course/spec-name';
 import { verifyParticipant } from '@/lib/auth';
@@ -65,6 +65,13 @@ export default async function LabPage({
   const ctx = snippetContext(participant, slot, spec);
   const steps = def.steps(ctx);
   const snippets = def.snippets?.(ctx) ?? [];
+
+  // Snippets go inside the step that asks for them. Anything no step claims still
+  // renders after the list, so a snippet can never end up invisible -- the failure
+  // mode a claim-by-key scheme invites.
+  const byKey = new Map(snippets.map((sn) => [snippetKey(sn), sn]));
+  const claimed = new Set(steps.flatMap((st) => st.snippets ?? []));
+  const unclaimed = snippets.filter((sn) => !claimed.has(snippetKey(sn)));
   const qs = labQuery(participant, token, slot);
 
   return (
@@ -132,22 +139,28 @@ export default async function LabPage({
                       <RichText>{s.expect}</RichText>
                     </p>
                   )}
+                  {(s.snippets ?? []).map((key) => {
+                    const sn = byKey.get(key);
+                    if (!sn) {
+                      // Loud rather than silent: a renamed file must not quietly
+                      // detach its answer from the step that needs it.
+                      throw new Error(
+                        `lab ${def.number} step "${s.label}" claims snippet "${key}", which does not exist`,
+                      );
+                    }
+                    return <Snippet key={key} snippet={sn} inStep />;
+                  })}
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-          {snippets.length > 0 && (
+          {unclaimed.length > 0 && (
           <section className="stack">
-            <h2>{def.number === 5 ? 'If you get stuck' : 'The answer'}</h2>
-            <p className="expect">
-              {def.number === 5
-                ? 'This challenge is the stopwatch, so opening this is opting out of the measurement.'
-                : 'Whole files, so you can replace what you have. Read the prose in the stub first — it says why each line is there, which the code cannot.'}
-            </p>
-            {snippets.map((sn, i) => (
-              <Snippet key={sn.path ?? i} snippet={sn} />
+            <h2>Also worth having</h2>
+            {unclaimed.map((sn, i) => (
+              <Snippet key={snippetKey(sn) || i} snippet={sn} />
             ))}
           </section>
         )}

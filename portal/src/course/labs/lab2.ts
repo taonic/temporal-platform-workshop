@@ -24,6 +24,7 @@ export const lab2: LabDef = {
     },
     {
       label: 'Write the child',
+      snippets: ['internal/platform/environment.go'],
       expect:
         'Three activity calls and one decision. The decision is what you return: MintKeyResult has ' +
         'a path and an id and no token, because whatever you return is written to the event history.',

@@ -17,6 +17,7 @@ export const lab3: LabDef = {
     {
       label: 'Write the wait',
       command: 'code internal/platform/wait.go',
+      snippets: ['internal/platform/wait.go'],
       expect:
         'Block until one of three things happens -- a spec on applyCh, a destroy on destroyCh, or ' +
         'the deadline -- and say which. Use workflow.NewTimer and workflow.NewSelector, not a Go ' +

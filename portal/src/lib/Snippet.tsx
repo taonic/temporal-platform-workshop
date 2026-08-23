@@ -10,15 +10,27 @@ import { CopyButton } from '@/lib/CopyButton';
  * blocks would make a lab page mostly code. The summary carries the training
  * portal's own line, because it is the right one -- the arguments are the lesson.
  */
-export async function Snippet({ snippet }: { snippet: SnippetDef }) {
+export async function Snippet({
+  snippet,
+  inStep = false,
+}: {
+  snippet: SnippetDef;
+  inStep?: boolean;
+}) {
   const html = await highlight(snippet.code, snippet.lang);
-  const label = snippet.path ?? snippet.lang;
+  const label = snippet.path ?? snippet.id ?? snippet.lang;
 
   return (
-    <details className="snippet">
+    <details className={inStep ? 'snippet snippet-instep' : 'snippet'}>
       <summary>
         <span className="snippet-title">
-          {snippet.path ? <code>{snippet.path}</code> : 'Show the commands'}
+          {snippet.path ? (
+            <>
+              Show <code>{snippet.path}</code>
+            </>
+          ) : (
+            'Show the commands'
+          )}
         </span>
         <span className="snippet-hint">
           Type it rather than pasting it if you have the time — the arguments are the lesson

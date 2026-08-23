@@ -11,3 +11,8 @@ export const LAB_NUMBERS = LABS.map((l) => l.number);
 export function lab(n: number): LabDef | undefined {
   return LABS.find((l) => l.number === n);
 }
+
+/** How a step names a snippet: its path, or its id when it has no path. */
+export function snippetKey(snippet: { path?: string; id?: string }): string {
+  return snippet.path ?? snippet.id ?? '';
+}

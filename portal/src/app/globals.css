@@ -235,3 +235,10 @@ input {
 @media (prefers-color-scheme: dark) {
   .shiki, .shiki span { color: var(--shiki-dark); }
 }
+
+/* In-step snippets sit inside a step body, which is already indented and
+   narrower. Lighter chrome so the step, not the block, still reads as the unit. */
+.snippet-instep { background: var(--surface-2); border-color: var(--rule-strong); }
+.snippet-instep > summary { padding: 0.55rem 0.8rem; font-size: 0.86rem; }
+.snippet-instep .snippet-body { padding: 0.75rem 0.8rem 0.85rem; }
+.snippet-instep .shiki { background: var(--surface) !important; }
