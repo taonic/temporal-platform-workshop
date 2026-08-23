@@ -32,6 +32,10 @@ virtualmachines:
       # fallback when this is unreachable -- see stateBackend in the spec.
       STATE_SERVICE_URL: https://temporal-workshop-tfstate.fly.dev
 
+      # Lab material and live checkpoints. The setup script prints a per-student
+      # link with the participant, view token and leased slot already in it.
+      PORTAL_URL: https://temporal-workshop-portal.fly.dev
+
       # Dev-mode Vault for challenges 1 to 3. Challenge 4 switches the worker to
       # Kubernetes auth, which is the point of that challenge.
       VAULT_ADDR: http://127.0.0.1:8200

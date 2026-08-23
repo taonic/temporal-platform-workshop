@@ -78,7 +78,7 @@ func (a *Activities) TerraformApply(ctx context.Context, in EnvInput) (Terraform
 			"namespace_name": name,
 			"region":         in.Spec.Region,
 			"retention_days": in.Spec.RetentionDays,
-			"tags":           in.Spec.Tags(in.Env, in.RunID),
+			"tags":           in.NamespaceTags(),
 		},
 		// If a previous attempt created the namespace but failed before its state
 		// was written, adopt it instead of trying to create it again. Namespace

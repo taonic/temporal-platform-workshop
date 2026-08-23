@@ -1,0 +1,198 @@
+/* Tokens. Light is the base; dark redefines only the values, so nothing is
+   defined solely inside a media query. */
+:root {
+  --ink: #10141c;
+  --paper: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #eef2f5;
+  --rule: #d3dbe2;
+  --rule-strong: #b4c0cb;
+  --muted: #5a6779;
+  --accent: #0d6f7a;
+  --accent-ink: #075158;
+  --accent-soft: #e0f0f2;
+  --pass: #0f7a52;
+  --pass-soft: #e2f3ea;
+  --fail: #a3352b;
+  --fail-soft: #fbeae8;
+  --warn: #8f5a0b;
+  --warn-soft: #faf0dd;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e7edf3;
+    --paper: #0b0f13;
+    --surface: #131a21;
+    --surface-2: #1a232c;
+    --rule: #25313b;
+    --rule-strong: #394855;
+    --muted: #8d9caa;
+    --accent: #43c6d1;
+    --accent-ink: #7fdce4;
+    --accent-soft: #102a2e;
+    --pass: #4cc38a;
+    --pass-soft: #10251c;
+    --fail: #e5735f;
+    --fail-soft: #2a1512;
+    --warn: #d69c4f;
+    --warn-soft: #251b0d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15.5px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent-ink); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  padding: 0.1em 0.34em;
+  border-radius: 3px;
+}
+
+.wrap { max-width: 54rem; margin: 0 auto; padding: 0 1.5rem 5rem; }
+.wide { max-width: 72rem; }
+
+h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.1; letter-spacing: -0.02em; margin: 0; }
+h2 { font-size: 1.22rem; line-height: 1.25; letter-spacing: -0.012em; margin: 0; }
+h3 { font-size: 1rem; margin: 0; }
+p { margin: 0; }
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+header.top { border-bottom: 1px solid var(--rule); margin-bottom: 2.5rem; }
+header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-top: 2.5rem; padding-bottom: 1.75rem; }
+
+.stack { display: flex; flex-direction: column; gap: 1rem; }
+.stack-lg { display: flex; flex-direction: column; gap: 2.25rem; }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.25rem 1.4rem;
+}
+
+.chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 100px;
+  padding: 0.25rem 0.65rem;
+  background: var(--surface);
+}
+
+.code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Lab steps. Numbered because a lab IS a sequence. */
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step { display: grid; grid-template-columns: 1.9rem 1fr; gap: 0.9rem; padding: 1.1rem 0; border-top: 1px solid var(--rule); }
+.step:first-child { border-top: 1px solid var(--rule-strong); }
+.step-n { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); }
+.step-body { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
+.expect { font-size: 0.9rem; color: var(--muted); }
+
+.badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+/* Checkpoints */
+.check { display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.75rem; padding: 0.8rem 0.9rem; border: 1px solid var(--rule); border-radius: 6px; }
+.check + .check { margin-top: 0.55rem; }
+.check-mark { font-weight: 700; font-family: var(--mono); }
+.check.pass { border-color: color-mix(in srgb, var(--pass) 40%, transparent); background: var(--pass-soft); }
+.check.pass .check-mark { color: var(--pass); }
+.check.fail { border-color: color-mix(in srgb, var(--fail) 35%, transparent); background: var(--fail-soft); }
+.check.fail .check-mark { color: var(--fail); }
+.check.blocked { border-color: var(--rule); background: var(--surface-2); }
+.check.blocked .check-mark { color: var(--muted); }
+.check-detail { font-size: 0.88rem; color: var(--muted); }
+.observed { font-family: var(--mono); font-size: 0.8rem; }
+
+.btn {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.55; cursor: default; }
+
+.notice { border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 0.75rem 0.9rem; font-size: 0.9rem; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule-strong); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; }
+
+nav.labs { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.86rem; }
+nav.labs a { color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; }
+nav.labs a:hover { color: var(--accent-ink); border-bottom-color: var(--accent); }
+nav.labs a[aria-current='page'] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+
+label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--muted); }
+input {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

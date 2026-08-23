@@ -1,0 +1,41 @@
+# The workshop portal: lab material and live checkpoints.
+#
+# Stateless. Everything it renders is read from the Temporal Cloud account on
+# request, so it can scale to zero, restart freely and run more than one machine
+# without any of the caveats the state service carries.
+app = "temporal-workshop-portal"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  PORTAL_COHORT_SIZE = "15"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "60s"
+    timeout = "10s"
+    grace_period = "15s"
+    method = "GET"
+    # An authenticated Cloud read, not just a liveness ping: you want to learn the
+    # portal's credential is broken at 09:00, not at 15:30 when every student's
+    # checkpoints go red at once.
+    path = "/healthz"
+
+# Secrets, set once:
+#   fly secrets set \
+#     TEMPORAL_CLOUD_API_KEY=...      the instructor's Cloud key, not a student's
+#     PORTAL_ACCOUNT_ID=...           five or six characters after the dot
+#     PORTAL_SHARED_SECRET=...        the SAME value as the state service's
+#                                     STATE_SHARED_SECRET -- one secret, one HMAC
+#                                     scheme, so a sandbox derives one token for both
+#     PORTAL_INSTRUCTOR_TOKEN=...     gates /instructor
+#     PORTAL_SANDBOX_URL=...          the Instruqt invite link

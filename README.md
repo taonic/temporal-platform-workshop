@@ -104,26 +104,27 @@ watch `nsctl status <name>`.
 
 ## Web services
 
-There is exactly one: `services/state`, the Terraform HTTP state backend. See
-[services/state/README.md](services/state/README.md) to run or deploy it.
+Two, both on Fly and both operated by the instructor:
 
-There is deliberately **no portal web app**. The training portal this workshop
-learns from runs a Next.js service for four jobs; here three of them are handled
-elsewhere and one is not handled at all:
+- **`portal/`** — Next.js + TypeScript. Lab material with per-student names, live
+  checkpoints, and an `/instructor` cohort view. See
+  [portal/README.md](portal/README.md).
+- **`services/state/`** — the Terraform HTTP state backend. See
+  [services/state/README.md](services/state/README.md).
 
-| Portal route | Here |
-|---|---|
-| `/` invite form | Gone — SAML authenticates students against an Okta tenant |
-| `/session/[n]` lab material + auto-graded checks | Instruqt: `assignment.md` tabs and `check-*` scripts |
-| `/api/checkpoints` grading | Instruqt check scripts, against the Ops API and reconciler Queries |
-| `/instructor` live "who is stuck" view | **Not built.** See below |
+The portal reads the **Cloud account**, not the students' control planes: each
+sandbox runs its own dev server and nothing central has ingress to it. That is why
+the reconciler stamps `participant` and `drift-corrected-at` into namespace tags —
+`Namespace.tags` is readable through the Ops API, so tags are the one channel
+through which progress escapes a sandbox.
 
-The portal's own README calls `/instructor` "the fastest way to see who is stuck --
-a student with no namespace after ten minutes is visible without asking." That
-matters *more* in a self-paced cohort, not less, because nobody can walk the room.
-The raw material for it already exists — every reconciler answers a `status` Query
-and the slot pool knows who holds what — so it is a small service rather than a
-portal, but it does not exist yet.
+Whatever exists only inside a sandbox — a pod on k3s, a secret in Vault, a completed
+workflow — is marked **self-attested** in the portal and graded by that challenge's
+Instruqt check instead. The two graders are complementary by construction, and the
+page says which is which.
+
+The invite flow the training portal needed is gone entirely: SAML authenticates
+students against an Okta tenant.
 
 ## Test
 

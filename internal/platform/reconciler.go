@@ -111,6 +111,11 @@ func NamespaceWorkflow(ctx workflow.Context, in ReconcileInput) error {
 				status.DriftsDetected++
 				status.LastDrift = detail
 				log.Info("drift detected", "detail", detail)
+				// Stamped into the namespace tags by the apply that follows, so a
+				// portal outside the sandbox can see that the loop corrected
+				// something. workflow.Now, not time.Now: this value lands in the
+				// history and has to be identical on replay.
+				desired.DriftCorrectedAt = workflow.Now(ctx).UTC().Format(time.RFC3339)
 				reconcile()
 			}
 		}
