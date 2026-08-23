@@ -9,10 +9,6 @@ import { config } from '@/config';
  * a stack trace or -- worse -- a checkpoint that silently goes red.
  */
 
-// Pinned. An unpinned API version is a workshop that breaks on someone else's
-// release schedule.
-const API_VERSION = 'v0.19.1';
-
 const Namespace = z.object({
   namespace: z.string().optional(),
   state: z.string().optional(),
@@ -67,13 +63,19 @@ export class CloudError extends Error {}
 
 async function get<T>(path: string, schema: z.ZodType<T>, params: Record<string, string> = {}): Promise<T> {
   const cfg = config();
+  if (!cfg.TEMPORAL_CLOUD_API_KEY) {
+    throw new CloudError(
+      'TEMPORAL_CLOUD_API_KEY is not set, so the portal cannot read the Cloud account. ' +
+        'Lab material still renders; checkpoints cannot. See .env.example.',
+    );
+  }
   const url = new URL(cfg.PORTAL_CLOUD_API_BASE + path);
   for (const [k, v] of Object.entries(params)) if (v) url.searchParams.set(k, v);
 
   const res = await fetch(url, {
     headers: {
       authorization: `Bearer ${cfg.TEMPORAL_CLOUD_API_KEY}`,
-      'temporal-cloud-api-version': API_VERSION,
+      'temporal-cloud-api-version': cfg.PORTAL_CLOUD_API_VERSION,
       accept: 'application/json',
     },
     cache: 'no-store',

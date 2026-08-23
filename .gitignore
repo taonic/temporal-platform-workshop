@@ -18,6 +18,8 @@ worker/.venv/
 /.platform-state/
 /generated/
 .env
+.env.local
+.env*.local
 
 # pytest
 .pytest_cache/

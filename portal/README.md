@@ -32,14 +32,35 @@ not.
 
 ```bash
 pnpm install
-
-export TEMPORAL_CLOUD_API_KEY=...        # the instructor's key, not a student's
-export PORTAL_ACCOUNT_ID=acct1
-export PORTAL_LINK_CODE=ws26aa               # opens the portal; rotate to retire links
-export PORTAL_SHARED_SECRET=$STATE_SHARED_SECRET   # deliberately the same secret
-export PORTAL_INSTRUCTOR_TOKEN=$(openssl rand -hex 24)
-
+cp .env.example .env.local     # then fill in TEMPORAL_CLOUD_API_KEY
 pnpm dev
+```
+
+A `.env.local` with placeholders is already committed-adjacent (gitignored), so
+`pnpm dev` works before you have a Cloud key: **lab material renders, and only the
+checkpoints panel reports the missing credential.** That is deliberate — a single
+config check that threw on any absent value turned a missing Cloud key into a 500
+on every page, so the credential is required at the point of use rather than at
+startup.
+
+`.env.example` documents every value and why it exists. The short version:
+
+| | |
+|---|---|
+| `PORTAL_LINK_CODE` | Opens the portal. Rotate to retire every link |
+| `PORTAL_SHARED_SECRET` | Derives per-participant tokens. Same value as the state service's |
+| `PORTAL_INSTRUCTOR_TOKEN` | Gates `/instructor`. Omit it and that page is unreachable |
+| `TEMPORAL_CLOUD_API_KEY` | The portal's read credential. An instructor identity, Read-Only is enough |
+| `PORTAL_ACCOUNT_ID` | For rendering fully qualified namespace ids |
+| `PORTAL_COHORT_SIZE` | The denominator on `/instructor` |
+| `PORTAL_SANDBOX_URL` | Shown to anyone arriving without a usable link |
+
+Missing values are reported all at once, not one per restart:
+
+```
+portal configuration is invalid:
+  PORTAL_ACCOUNT_ID: PORTAL_ACCOUNT_ID is required
+  PORTAL_SHARED_SECRET: PORTAL_SHARED_SECRET must be at least 16 characters
 ```
 
 ## Two gates, two jobs

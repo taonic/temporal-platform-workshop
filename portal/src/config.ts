@@ -15,8 +15,16 @@ import { z } from 'zod';
  * portal says so rather than pretending.
  */
 const Schema = z.object({
-  /** Read-only-ish Cloud credential belonging to the instructor, not a student. */
-  TEMPORAL_CLOUD_API_KEY: z.string().min(1, 'TEMPORAL_CLOUD_API_KEY is required'),
+  /**
+   * Read-only Cloud credential belonging to the instructor, not a student.
+   *
+   * Optional HERE and required at the point of use, deliberately. Everything that
+   * does not touch the Cloud -- verifying a link code, rendering lab material --
+   * must keep working without it, because a single config() that threw on any
+   * missing value turned an absent Cloud key into a 500 on every page. A missing
+   * credential should break the checkpoints panel and nothing else.
+   */
+  TEMPORAL_CLOUD_API_KEY: z.string().optional(),
 
   /** Account id, for rendering fully qualified namespace ids in snippets. */
   PORTAL_ACCOUNT_ID: z.string().min(1, 'PORTAL_ACCOUNT_ID is required'),
@@ -56,6 +64,15 @@ const Schema = z.object({
 
   /** Override for non-production Cloud environments. */
   PORTAL_CLOUD_API_BASE: z.string().url().default('https://saas-api.tmprl.cloud'),
+
+  /**
+   * Ops API version, sent as the temporal-cloud-api-version header.
+   *
+   * Pinned, because an unpinned API version is a workshop that breaks on someone
+   * else's release schedule. Configurable, because needing a rebuild to bump a
+   * compatibility header is the wrong kind of pinned.
+   */
+  PORTAL_CLOUD_API_VERSION: z.string().default('v0.19.1'),
 });
 
 export type Config = z.infer<typeof Schema>;
