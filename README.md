@@ -56,22 +56,29 @@ same as writing them.
 
 Go stubs return a non-retryable error rather than panicking, so the message reaches
 you through the parent workflow, the CLI and the Temporal UI instead of being
-swallowed. `_solutions/` and `_stubs/` start with an underscore because the Go
-toolchain ignores such directories — otherwise `go build ./...` would compile three
-copies of package `platform`.
+swallowed. `_stubs/` starts with an underscore because the Go toolchain ignores such
+directories — otherwise `go build ./...` would compile two copies of package
+`platform`.
+
+**The answers live in the portal**, as the snippets students read on each lab page —
+there is no solutions directory, so there is only ever one copy of an answer.
+`make solve` emits those snippets into the tree, which is how the answer key gets
+compiled and tested: a snippet that stops working fails CI rather than a student's
+paste.
 
 ```bash
 make test        # labs 2 and 3. Fails on a fresh clone, on purpose
 make lab-test    # lab 4. Same
 make py-test     # contract tests only: schema and golden fixture. Always green
-make solve       # instructor: put the complete versions in
+make solve       # emit the portal's snippets into the tree
 make unsolve     # put the stubs back
 make verify      # solve, build, test, validate, unsolve. This is what CI runs
 ```
 
-`make verify` matters more than it looks. Solutions rot silently the first time an
-interface changes underneath them, and a workshop whose answer key no longer
-compiles is worse than one with no answer key.
+`make verify` matters more than it looks, and more than it used to. The answers are
+now TypeScript string literals in the portal, and nothing else in the world compiles
+a string literal — so this is the only thing standing between a provider bump and
+five snippets that no longer work. It needs `pnpm install` in `portal/`.
 
 ## Run it locally
 

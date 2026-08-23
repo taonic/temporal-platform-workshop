@@ -1,3 +1,4 @@
+import { ENVIRONMENT_GO } from '../snippets/environmentGo';
 import type { LabDef } from '../types';
 
 export const lab2: LabDef = {
@@ -52,6 +53,17 @@ export const lab2: LabDef = {
       expect:
         'Set an impossible region for prod and re-apply. Staging succeeds, prod fails, and you get ' +
         'both results. A platform that collapses that into one error is lying to whoever is on call.',
+    },
+  ],
+
+  snippets: () => [
+    {
+      path: 'internal/platform/environment.go',
+      lang: 'go',
+      code: ENVIRONMENT_GO,
+      caption:
+        'The whole file. EnvironmentWorkflowID and DestroyEnvironmentWorkflow are unchanged from ' +
+        'what you already have; the middle is what you were asked to write.',
     },
   ],
 

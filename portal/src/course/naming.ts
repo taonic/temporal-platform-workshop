@@ -14,15 +14,24 @@ import type { SnippetContext } from './types';
  * portal chose the name: here the platform decides the slot and the team decides
  * the name, which is the boundary the whole workshop is about.
  */
-export function snippetContext(participant: string, slot: number): SnippetContext {
+export function snippetContext(
+  participant: string,
+  slot: number,
+  spec?: string,
+): SnippetContext {
   const cfg = config();
+  // The spec name is the student's choice, so it can only be substituted once they
+  // have made it -- and by then the reconciler has written it into the namespace
+  // tags, which is where the portal reads it from. No form, no stored state.
+  const name = spec ?? '<spec>';
   return {
     participant,
     slot,
+    spec,
     accountId: cfg.PORTAL_ACCOUNT_ID,
-    namespacePattern: `ws-${slot}-<spec>-<environment>`,
-    stagingSuffix: `ws-${slot}-<spec>-staging`,
-    prodSuffix: `ws-${slot}-<spec>-prod`,
+    namespacePattern: `ws-${slot}-${name}-<environment>`,
+    stagingSuffix: `ws-${slot}-${name}-staging`,
+    prodSuffix: `ws-${slot}-${name}-prod`,
     sandboxUrl: cfg.PORTAL_SANDBOX_URL,
   };
 }

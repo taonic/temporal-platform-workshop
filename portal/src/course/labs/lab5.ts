@@ -40,6 +40,34 @@ export const lab5: LabDef = {
     },
   ],
 
+  // Illustrative, and no path: there is no file for the platform's own customer to
+  // write. It is also the one snippet that undermines its own challenge, so the
+  // disclosure says so -- the point of a stopwatch is that you ran the race.
+  snippets: ({ slot }) => [
+    {
+      lang: 'bash',
+      caption: 'The whole paved road, as a developer walks it. Using this stops the clock being meaningful.',
+      code: [
+        '# You are a developer on a new team. You have an empty directory.',
+        'nsctl new --non-interactive --name payments --owner risk-team --retention 7',
+        'nsctl apply -f specs/payments.yaml',
+        '',
+        '# Two namespaces and two credentials exist now. Write a workflow:',
+        '#   worker/workflows/payments.py, decorated for task queue payments-main',
+        '#   and namespace payments -- then import it in workflows/__init__.py',
+        '',
+        'nsctl worker gen-config --out generated/payments.json',
+        'cd worker && uv run python -m platform_sdk.main --config ../generated/payments.json &',
+        '',
+        '# Start one, against the namespace your platform just built:',
+        `temporal workflow start --type PaymentsWorkflow --task-queue payments-main \\`,
+        `  --namespace ws-${slot}-payments-staging --input '\"world\"' \\`,
+        '  --api-key "$(vault kv get -field=api_key \\',
+        `    secret/namespaces/$WORKSHOP_PARTICIPANT/payments/staging)"`,
+      ].join('\n'),
+    },
+  ],
+
   checkpoints: [
     {
       id: 'second-namespace',

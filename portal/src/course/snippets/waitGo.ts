@@ -1,4 +1,7 @@
-package platform
+// GENERATED from the reference solution. Do not hand-edit the code below --
+// `pnpm snippets:emit` writes it back to internal/platform/wait.go and `make verify` compiles it
+// there, so a drifted copy fails CI rather than a student's paste.
+export const WAIT_GO = `package platform
 
 import (
 	"time"
@@ -71,3 +74,4 @@ func waitForNext(
 	sel.Select(ctx)
 	return event, incoming
 }
+`;

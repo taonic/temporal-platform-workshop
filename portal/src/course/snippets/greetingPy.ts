@@ -1,4 +1,10 @@
-"""A product team's code, in full.
+// GENERATED from the reference solution. Do not hand-edit the code below --
+// `pnpm snippets:emit` writes it back to worker/workflows/greeting.py and `make verify` compiles it
+// there, so a drifted copy fails CI rather than a student's paste.
+//
+// The spec name is interpolated: the decorator's namespace has to match the
+// student's own spec, and the portal reads it from the namespace tags.
+export const greetingPy = (spec: string) => `"""A product team's code, in full.
 
 Note what is absent: no namespace plumbing, no task-queue constant shared with a
 deployment file, no API key, no client construction, no Dockerfile, no manifest.
@@ -16,8 +22,8 @@ from temporalio import workflow
 
 from platform_sdk import managed_activity, managed_workflow
 
-TASK_QUEUE = "orders-main"
-NAMESPACE = "orders"
+TASK_QUEUE = "${spec}-main"
+NAMESPACE = "${spec}"
 
 
 @managed_activity(task_queue=TASK_QUEUE)
@@ -34,3 +40,4 @@ class GreetingWorkflow:
             name,
             start_to_close_timeout=timedelta(seconds=30),
         )
+`;

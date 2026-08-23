@@ -1,3 +1,4 @@
+import { greetingPy } from '../snippets/greetingPy';
 import type { LabDef } from '../types';
 
 export const lab4: LabDef = {
@@ -55,6 +56,18 @@ export const lab4: LabDef = {
         'The pod will crash-loop, and it should: VAULT_TOKEN does not exist in there. Fifteen lines ' +
         'of Vault config later, the worker authenticates as itself. This is the one moment where ' +
         '"the worker moved into the cluster" has a consequence you must handle rather than watch.',
+    },
+  ],
+
+  snippets: ({ spec }) => [
+    {
+      path: 'worker/workflows/greeting.py',
+      lang: 'python',
+      code: greetingPy(spec ?? 'orders'),
+      caption:
+        spec
+          ? `The whole file, with the namespace set to your spec (${spec}).`
+          : 'The whole file. Change NAMESPACE to your own spec name.',
     },
   ],
 

@@ -1,3 +1,4 @@
+import { WAIT_GO } from '../snippets/waitGo';
 import type { LabDef } from '../types';
 
 export const lab3: LabDef = {
@@ -62,6 +63,15 @@ export const lab3: LabDef = {
       expect:
         'It is destroyed. Convergence means removing what is no longer desired, not only adding ' +
         'what is -- the half people forget.',
+    },
+  ],
+
+  snippets: () => [
+    {
+      path: 'internal/platform/wait.go',
+      lang: 'go',
+      code: WAIT_GO,
+      caption: 'The whole file. The event enum above waitForNext is unchanged.',
     },
   ],
 

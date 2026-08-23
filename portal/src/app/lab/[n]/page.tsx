@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { LABS, lab } from '@/course';
 import { snippetContext } from '@/course/naming';
+import { resolveSpecName } from '@/course/spec-name';
 import { verifyParticipant } from '@/lib/auth';
 import { labQuery, verifyCode } from '@/lib/link';
+import { Snippet } from '@/lib/Snippet';
 import { CodeBlock, RichText } from '@/lib/ui';
 import { Checkpoints } from './Checkpoints';
 
@@ -56,8 +58,13 @@ export default async function LabPage({
     );
   }
 
-  const ctx = snippetContext(participant, slot);
+  // Read once, for the whole page: the spec name is the student's own choice, so
+  // the only place the portal can learn it is the namespace tags the reconciler
+  // wrote. Degrades to a `<spec>` placeholder without a Cloud credential.
+  const spec = await resolveSpecName(participant, slot);
+  const ctx = snippetContext(participant, slot, spec);
   const steps = def.steps(ctx);
+  const snippets = def.snippets?.(ctx) ?? [];
   const qs = labQuery(participant, token, slot);
 
   return (
@@ -131,7 +138,21 @@ export default async function LabPage({
           </div>
         </section>
 
-        <Checkpoints
+          {snippets.length > 0 && (
+          <section className="stack">
+            <h2>{def.number === 5 ? 'If you get stuck' : 'The answer'}</h2>
+            <p className="expect">
+              {def.number === 5
+                ? 'This challenge is the stopwatch, so opening this is opting out of the measurement.'
+                : 'Whole files, so you can replace what you have. Read the prose in the stub first — it says why each line is there, which the code cannot.'}
+            </p>
+            {snippets.map((sn, i) => (
+              <Snippet key={sn.path ?? i} snippet={sn} />
+            ))}
+          </section>
+        )}
+
+      <Checkpoints
         lab={def.number}
         code={code}
         participant={participant}

@@ -1,4 +1,7 @@
-package platform
+// GENERATED from the reference solution. Do not hand-edit the code below --
+// `pnpm snippets:emit` writes it back to internal/platform/environment.go and `make verify` compiles it
+// there, so a drifted copy fails CI rather than a student's paste.
+export const ENVIRONMENT_GO = `package platform
 
 import (
 	"time"
@@ -11,7 +14,7 @@ import (
 //
 // This is the keystone of the whole design. The workflow id IS the resource
 // identity, so Temporal's workflow-id uniqueness constraint gives a single writer
-// per resource for free -- no lock table, no lease, no `terraform force-unlock`
+// per resource for free -- no lock table, no lease, no \`terraform force-unlock\`
 // runbook, because a second concurrent writer cannot come into existence. A
 // competing reconcile gets "workflow execution already started" instead of a
 // corrupted state file.
@@ -92,3 +95,4 @@ func DestroyEnvironmentWorkflow(ctx workflow.Context, in EnvInput) error {
 	})
 	return workflow.ExecuteActivity(ctx, actv.TerraformDestroy, in).Get(ctx, nil)
 }
+`;

@@ -137,6 +137,34 @@ curl -s https://temporal-workshop-portal.fly.dev/healthz
 Stateless, so unlike the state service this one can scale to zero and run more than
 one machine.
 
+## Snippets are the answer key
+
+Each lab page carries the answer behind one `<details>`. Whole files, not fragments,
+so a student can replace what they have — and so the emit-and-compile check below
+can work at all.
+
+The snippets in `src/course/snippets/` are the **only** copy of every answer; the
+repo has no solutions directory. Nothing compiles a TypeScript string literal, so
+the guarantee comes from round-tripping them:
+
+```bash
+pnpm snippets:emit --out ..        # writes each snippet to its real path
+make verify                        # from the repo root: emit, build, test, restore
+```
+
+`make verify` is what CI runs. A provider bump or a changed Go signature therefore
+breaks the build rather than a student's paste.
+
+Highlighting is Shiki, in a server component, with dual themes emitted as CSS
+variables — so it runs at request time on the server and ships no JavaScript. Five
+languages done properly by hand would have been several hundred lines of tokeniser
+maintained against snippets that change, and half-right highlighting reads as a bug
+in the portal rather than as a limitation.
+
+One snippet is personalised: `greeting.py` interpolates the student's own spec name,
+read from their namespace tags. Lab 1 legitimately cannot know it — they are choosing
+it in that lab — so it renders `<spec>` there, and the caption says to change it.
+
 ## Adding a lab
 
 `src/course/labs/labN.ts` — one `LabDef` with `steps()` for the material and

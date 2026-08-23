@@ -1,3 +1,5 @@
+import { NAMESPACE_MAIN_TF } from '../snippets/namespaceMainTf';
+import { NAMESPACE_OUTPUTS_TF } from '../snippets/namespaceOutputsTf';
 import type { LabDef } from '../types';
 
 export const lab1: LabDef = {
@@ -58,6 +60,21 @@ export const lab1: LabDef = {
       expect:
         'Derived from your leased slot, not from your participant id -- Temporal Cloud reserves a ' +
         'namespace name after deletion, so names have to be recyclable.',
+    },
+  ],
+
+  snippets: () => [
+    {
+      path: 'terraform/namespace/main.tf',
+      lang: 'hcl',
+      code: NAMESPACE_MAIN_TF,
+      caption: 'Replace the comment block with this. variables.tf and versions.tf are already there.',
+    },
+    {
+      path: 'terraform/namespace/outputs.tf',
+      lang: 'hcl',
+      code: NAMESPACE_OUTPUTS_TF,
+      caption: 'A new file. The reconciler reads both outputs by name.',
     },
   ],
 

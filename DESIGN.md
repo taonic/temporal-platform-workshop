@@ -319,8 +319,21 @@ mostly Cloud Ops API plumbing; the same lesson lands harder in
 
 Mechanism: Go stubs return a non-retryable application error rather than panicking,
 so the message propagates through the parent workflow, the CLI and the Temporal UI.
-A panic would retry forever and say nothing. `_solutions/` and `_stubs/` are
-underscore-prefixed so the Go toolchain ignores them outright.
+A panic would retry forever and say nothing. `_stubs/` is underscore-prefixed so the
+Go toolchain ignores it outright.
+
+**Where the answers live.** In the portal, as the snippets students read — one copy,
+and it is the copy they actually see. Every lab has one, behind a single click,
+because with no solutions directory a lab without a snippet would have no reference
+answer anywhere: not for a stuck student, not for an instructor, not for CI. The
+disclosure carries the training portal's own line, which is the right one: *type it
+rather than pasting it if you have the time, the arguments are the lesson.*
+
+The obvious hazard is rot — nothing compiles a TypeScript string literal. So
+`pnpm snippets:emit` writes every path-backed snippet to its real path and
+`make verify` compiles and tests it there before restoring the stubs. That is
+strictly better than the solutions directory it replaced, because it checks the
+string the student is shown rather than a file that resembles it.
 
 The unit tests double as the student's feedback loop, which the portal has no
 equivalent of because HCL has none. `make test` and `make lab-test` therefore

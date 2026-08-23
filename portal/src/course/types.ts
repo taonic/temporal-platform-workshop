@@ -37,6 +37,13 @@ export interface SnippetContext {
   stagingSuffix: string;
   prodSuffix: string;
   sandboxUrl?: string;
+  /**
+   * The student's own spec name, read from their namespace tags.
+   *
+   * Undefined during challenge 1, because they have not chosen it yet -- which is
+   * exactly the moment the placeholder is honest rather than unhelpful.
+   */
+  spec?: string;
 }
 
 /** Everything a lab's grade() can read, memoised for the request. */
@@ -50,6 +57,26 @@ export interface GradeContext extends SnippetContext {
   check(id: string, ok: boolean, onPass: string, onFail: string): CheckpointResult;
   attest(id: string): CheckpointResult;
   blockedAll(reason: string): CheckpointResult[];
+}
+
+export type SnippetLang = 'hcl' | 'go' | 'python' | 'yaml' | 'bash';
+
+/**
+ * A block of code a student can read and paste.
+ *
+ * Whole files, not fragments. That is partly the training portal's convention --
+ * its Session 1 snippet is the entire contents of lab1.tf -- and partly a
+ * mechanical requirement: `pnpm snippets:emit` writes every path-backed snippet to
+ * its `path`, and `make verify` then compiles and tests it there. A fragment could
+ * not be verified, and an unverified answer key rots silently.
+ */
+export interface Snippet {
+  /** Repo-relative destination, and what emit writes. Omit for illustrative blocks. */
+  path?: string;
+  lang: SnippetLang;
+  code: string;
+  /** One line above the block: what this is and where it goes. */
+  caption?: string;
 }
 
 export interface LabStep {
@@ -74,6 +101,12 @@ export interface LabDef {
   minutes: number;
   intro: string;
   steps: (ctx: SnippetContext) => LabStep[];
+  /**
+   * The answer, behind a disclosure. Every lab has one: with no solutions
+   * directory in the repo, a lab without a snippet has no reference answer
+   * anywhere -- not for a stuck student and not for CI.
+   */
+  snippets?: (ctx: SnippetContext) => Snippet[];
   checkpoints: CheckpointDef[];
   grade(ctx: GradeContext): CheckpointResult[];
 }

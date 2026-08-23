@@ -196,3 +196,42 @@ input {
 }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- Snippets ---- */
+.snippet {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.snippet + .snippet { margin-top: 0.75rem; }
+.snippet > summary {
+  cursor: pointer;
+  padding: 0.7rem 0.95rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 8px;
+}
+.snippet > summary::marker { color: var(--accent); }
+.snippet[open] > summary { border-bottom: 1px solid var(--rule); border-radius: 8px 8px 0 0; }
+.snippet-hint { font-weight: 400; font-size: 0.82rem; color: var(--muted); }
+.snippet-body { padding: 0.9rem 0.95rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.snippet-tools { display: flex; align-items: center; gap: 0.5rem; }
+
+/* Shiki emits both palettes as CSS variables; the scheme picks one. */
+.shiki-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+.shiki {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  background: var(--surface-2) !important;
+}
+.shiki, .shiki span { color: var(--shiki-light); }
+@media (prefers-color-scheme: dark) {
+  .shiki, .shiki span { color: var(--shiki-dark); }
+}

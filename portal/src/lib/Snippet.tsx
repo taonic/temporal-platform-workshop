@@ -1,0 +1,39 @@
+import type { Snippet as SnippetDef } from '@/course/types';
+import { highlight } from '@/lib/highlight';
+import { CopyButton } from '@/lib/CopyButton';
+
+/**
+ * The answer, behind one click.
+ *
+ * Disclosure rather than always-visible: one click is enough friction to make
+ * pasting-without-reading a choice rather than the default, and five open code
+ * blocks would make a lab page mostly code. The summary carries the training
+ * portal's own line, because it is the right one -- the arguments are the lesson.
+ */
+export async function Snippet({ snippet }: { snippet: SnippetDef }) {
+  const html = await highlight(snippet.code, snippet.lang);
+  const label = snippet.path ?? snippet.lang;
+
+  return (
+    <details className="snippet">
+      <summary>
+        <span className="snippet-title">
+          {snippet.path ? <code>{snippet.path}</code> : 'Show the commands'}
+        </span>
+        <span className="snippet-hint">
+          Type it rather than pasting it if you have the time — the arguments are the lesson
+        </span>
+      </summary>
+
+      <div className="snippet-body">
+        {snippet.caption && <p className="expect">{snippet.caption}</p>}
+        <div className="snippet-tools">
+          <span className="chip">{snippet.lang}</span>
+          <CopyButton text={snippet.code} label={label} />
+        </div>
+        {/* Shiki output: server-rendered, no client JS. */}
+        <div className="shiki-wrap" dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+    </details>
+  );
+}
