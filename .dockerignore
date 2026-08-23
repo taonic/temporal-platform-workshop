@@ -1,0 +1,16 @@
+# The state service builds with the repo root as its context, so keep the context
+# small and free of things that would bust the layer cache on every edit.
+.git
+bin/
+generated/
+.platform-state/
+_solutions/
+_stubs/
+instruqt/
+worker/.venv/
+worker/.pytest_cache/
+**/__pycache__/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+design-doc.html

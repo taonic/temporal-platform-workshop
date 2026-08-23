@@ -8,7 +8,13 @@ app = "temporal-workshop-tfstate"
 primary_region = "syd"
 
 [build]
-  dockerfile = "Dockerfile"
+  # Relative to the build context, which is the repo root -- the Dockerfile needs
+  # go.mod and go.sum, and those live there. So deploy from the root:
+  #
+  #   fly deploy -c services/state/fly.toml
+  #
+  # Deploying from inside this directory fails on a missing go.sum.
+  dockerfile = "services/state/Dockerfile"
 
 [env]
   STATE_DIR = "/data"

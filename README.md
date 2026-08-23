@@ -29,7 +29,7 @@ terraform/namespace/  the module. Note what is absent: the API key
 worker/               the managed worker (Python) -- product-side code
 schema/               worker config JSON Schema, validated by both languages
 specs/                desired state. Committing here is how you ask for something
-services/state/       terraform http state backend, deliberately lock-free
+services/state/       terraform http state backend, deliberately lock-free (see its README)
 instruqt/             sandbox prebuild and the five challenges
 hooks/post-commit     delivers intent to the reconciler the moment it exists
 ```
@@ -101,6 +101,29 @@ export STATE_DIR=.platform-state
 
 For the declarative path, `git config core.hooksPath hooks`, then commit a spec and
 watch `nsctl status <name>`.
+
+## Web services
+
+There is exactly one: `services/state`, the Terraform HTTP state backend. See
+[services/state/README.md](services/state/README.md) to run or deploy it.
+
+There is deliberately **no portal web app**. The training portal this workshop
+learns from runs a Next.js service for four jobs; here three of them are handled
+elsewhere and one is not handled at all:
+
+| Portal route | Here |
+|---|---|
+| `/` invite form | Gone — SAML authenticates students against an Okta tenant |
+| `/session/[n]` lab material + auto-graded checks | Instruqt: `assignment.md` tabs and `check-*` scripts |
+| `/api/checkpoints` grading | Instruqt check scripts, against the Ops API and reconciler Queries |
+| `/instructor` live "who is stuck" view | **Not built.** See below |
+
+The portal's own README calls `/instructor` "the fastest way to see who is stuck --
+a student with no namespace after ten minutes is visible without asking." That
+matters *more* in a self-paced cohort, not less, because nobody can walk the room.
+The raw material for it already exists — every reconciler answers a `status` Query
+and the slot pool knows who holds what — so it is a small service rather than a
+portal, but it does not exist yet.
 
 ## Test
 
