@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { LABS } from '@/course';
 import { config } from '@/config';
+import { verifyCode } from '@/lib/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,10 +21,14 @@ export default async function Home({
     const v = params[k];
     return Array.isArray(v) ? v[0] : v;
   };
+  const code = one('k') ?? '';
+  // The code opens the portal; the participant token binds the identity. A link
+  // from the sandbox carries both, so neither costs a student anything.
+  const opened = verifyCode(code);
   const participant = one('p') ?? '';
   const token = one('t') ?? '';
   const slot = one('slot') ?? '';
-  const known = Boolean(participant && token && slot);
+  const known = opened && Boolean(participant && token && slot);
 
   const sandbox = (() => {
     try {
@@ -34,7 +39,8 @@ export default async function Home({
   })();
 
   const qs = known
-    ? `?p=${encodeURIComponent(participant)}&t=${encodeURIComponent(token)}&slot=${encodeURIComponent(slot)}`
+    ? `?k=${encodeURIComponent(code)}&p=${encodeURIComponent(participant)}` +
+      `&t=${encodeURIComponent(token)}&slot=${encodeURIComponent(slot)}`
     : '';
 
   return (
@@ -53,16 +59,25 @@ export default async function Home({
       </header>
 
       <main className="wrap stack-lg">
-        {!known && (
+        {!opened && (
           <div className="notice">
-            Open the link your sandbox printed — it carries your participant id, view token and
-            leased slot. Without them this page cannot show your namespaces or check your work.
+            This portal needs the workshop code — the one on screen, or in the link your sandbox
+            printed: <code>/?k=CODE</code>. The code changes between cohorts, so an old link stops
+            working.
             {sandbox && (
               <>
                 {' '}
                 <a href={sandbox}>Open the sandbox</a>.
               </>
             )}
+          </div>
+        )}
+
+        {opened && !known && (
+          <div className="notice">
+            The code is right, but this link is missing your participant id, view token and leased
+            slot. Your sandbox printed a link with all four — check its setup output, or run{' '}
+            <code>echo $PORTAL_LINK</code> in the sandbox terminal.
           </div>
         )}
 

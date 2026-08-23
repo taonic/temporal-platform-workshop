@@ -141,12 +141,15 @@ log "your portal link"
 # One token, two services: the portal derives per-participant tokens with the same
 # HMAC scheme as the state service, so PORTAL_SHARED_SECRET holds the same value as
 # STATE_SHARED_SECRET and STATE_TOKEN works for both.
-if [ -n "${PORTAL_URL:-}" ]; then
-  LINK="${PORTAL_URL}/lab/1?p=${PARTICIPANT}&t=${STATE_TOKEN}&slot=${SLOT}"
+if [ -n "${PORTAL_URL:-}" ] && [ -n "${PORTAL_LINK_CODE:-}" ]; then
+  # Four values: the code opens the portal, the token binds the identity, the slot
+  # names the resources. Rotating the code retires this link; rotating the shared
+  # secret would also break the state backend, which is why they are separate.
+  LINK="${PORTAL_URL}/lab/1?k=${PORTAL_LINK_CODE}&p=${PARTICIPANT}&t=${STATE_TOKEN}&slot=${SLOT}"
   echo "export PORTAL_LINK='$LINK'" >> /etc/workshop/env
   printf '\n  %s\n\n' "$LINK"
 else
-  echo "  PORTAL_URL is not set; skipping the portal link"
+  echo "  PORTAL_URL or PORTAL_LINK_CODE is not set; skipping the portal link"
 fi
 
 log "egress probes"

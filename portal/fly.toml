@@ -32,6 +32,10 @@ primary_region = "syd"
 
 # Secrets, set once:
 #   fly secrets set \
+#     PORTAL_LINK_CODE=...            opens the portal. Rotate after a cohort to retire
+#                                     every outstanding link; kept separate from
+#                                     PORTAL_SHARED_SECRET so that rotation does not
+#                                     also break the state backend's auth
 #     TEMPORAL_CLOUD_API_KEY=...      the instructor's Cloud key, not a student's
 #     PORTAL_ACCOUNT_ID=...           five or six characters after the dot
 #     PORTAL_SHARED_SECRET=...        the SAME value as the state service's

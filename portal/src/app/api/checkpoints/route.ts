@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { LAB_NUMBERS } from '@/course';
 import { gradeLab } from '@/course/grading';
 import { verifyParticipant } from '@/lib/auth';
+import { verifyCode } from '@/lib/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,12 @@ export async function GET(request: Request) {
   const slot = Number(url.searchParams.get('slot') ?? '0');
   const labNumber = Number(url.searchParams.get('lab') ?? '1');
 
+  // The code is checked here as well as on the page. Without it, rotating
+  // PORTAL_LINK_CODE would retire the pages while leaving this endpoint open to
+  // any link that had been saved -- which would make the kill switch decorative.
+  if (!verifyCode(url.searchParams.get('k'))) {
+    return NextResponse.json({ error: 'link-retired' }, { status: 401 });
+  }
   if (!verifyParticipant(participant, token)) {
     return NextResponse.json({ error: 'bad-token' }, { status: 401 });
   }

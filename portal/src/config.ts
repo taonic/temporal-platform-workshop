@@ -22,9 +22,26 @@ const Schema = z.object({
   PORTAL_ACCOUNT_ID: z.string().min(1, 'PORTAL_ACCOUNT_ID is required'),
 
   /**
+   * The code that opens the portal. Rotating it retires every outstanding link at
+   * once; see src/lib/link.ts for why it is a plain code rather than a hash, and
+   * why it is deliberately not the same value as PORTAL_SHARED_SECRET.
+   *
+   * Lower-cased and constrained to typeable characters, because it gets read off
+   * a projected screen.
+   */
+  PORTAL_LINK_CODE: z
+    .string()
+    .min(6, 'PORTAL_LINK_CODE must be at least 6 characters')
+    .transform((v) => v.trim().toLowerCase())
+    .refine((v) => /^[a-z0-9-]+$/.test(v), 'PORTAL_LINK_CODE must be lower-case letters, digits or dashes'),
+
+  /**
    * Per-participant view tokens are derived from this, with the same HMAC scheme
    * the Terraform state service uses. One secret, one scheme, two services --
    * rather than a second list of tokens to keep in sync with the first.
+   *
+   * Distinct from PORTAL_LINK_CODE on purpose: rotating a link must not invalidate
+   * the state-backend credentials fifteen sandboxes are mid-apply with.
    */
   PORTAL_SHARED_SECRET: z.string().min(16, 'PORTAL_SHARED_SECRET must be at least 16 characters'),
 

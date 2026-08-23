@@ -48,3 +48,7 @@ virtualmachines:
     # Set as Instruqt secrets, never here:
     #   TEMPORAL_CLOUD_API_KEY   the platform's Developer-role service account key
     #   STATE_SHARED_SECRET      per-participant state tokens are derived from it
+    #   PORTAL_LINK_CODE         opens the portal. Rotate it after a cohort and every
+    #                            outstanding link dies at once -- which is exactly why
+    #                            it is not the same value as STATE_SHARED_SECRET:
+    #                            rotating that would break state auth mid-workshop

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { LABS, lab } from '@/course';
 import { snippetContext } from '@/course/naming';
 import { verifyParticipant } from '@/lib/auth';
+import { labQuery, verifyCode } from '@/lib/link';
 import { CodeBlock, RichText } from '@/lib/ui';
 import { Checkpoints } from './Checkpoints';
 
@@ -25,13 +26,25 @@ export default async function LabPage({
   const def = lab(Number(n));
   if (!def) notFound();
 
+  const code = one('k') ?? '';
   const participant = one('p') ?? '';
   const token = one('t') ?? '';
   const slot = Number(one('slot') ?? '0');
 
-  // The token stops a student reading another student's progress by editing a
-  // URL. It is not the workshop's access control -- Okta and the Cloud's own RBAC
-  // are -- and the page says so rather than implying more than it does.
+  // Two gates, two jobs. The code opens the portal and is what an instructor
+  // rotates to retire every outstanding link; the token stops a student reading
+  // another student's progress by editing a URL. Neither is the workshop's real
+  // access control -- Okta and the Cloud's own RBAC are -- and the page says so
+  // rather than implying more than it does.
+  if (!verifyCode(code)) {
+    return (
+      <main className="wrap" style={{ paddingTop: '3rem' }}>
+        <p className="notice">
+          Wrong or retired workshop code. <Link href="/">Back to the overview</Link>.
+        </p>
+      </main>
+    );
+  }
   if (!verifyParticipant(participant, token) || !slot) {
     return (
       <main className="wrap" style={{ paddingTop: '3rem' }}>
@@ -45,7 +58,7 @@ export default async function LabPage({
 
   const ctx = snippetContext(participant, slot);
   const steps = def.steps(ctx);
-  const qs = `?p=${encodeURIComponent(participant)}&t=${encodeURIComponent(token)}&slot=${slot}`;
+  const qs = labQuery(participant, token, slot);
 
   return (
     <>
@@ -118,7 +131,13 @@ export default async function LabPage({
           </div>
         </section>
 
-        <Checkpoints lab={def.number} participant={participant} token={token} slot={slot} />
+        <Checkpoints
+        lab={def.number}
+        code={code}
+        participant={participant}
+        token={token}
+        slot={slot}
+      />
       </main>
     </>
   );

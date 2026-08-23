@@ -35,26 +35,50 @@ pnpm install
 
 export TEMPORAL_CLOUD_API_KEY=...        # the instructor's key, not a student's
 export PORTAL_ACCOUNT_ID=acct1
+export PORTAL_LINK_CODE=ws26aa               # opens the portal; rotate to retire links
 export PORTAL_SHARED_SECRET=$STATE_SHARED_SECRET   # deliberately the same secret
 export PORTAL_INSTRUCTOR_TOKEN=$(openssl rand -hex 24)
 
 pnpm dev
 ```
 
-A student's link carries three values. Derive the token the same way the state
-service does:
+## Two gates, two jobs
+
+A student's link carries four values, and the sandbox prints it for them:
 
 ```bash
 P=p-abc123
 T=$(printf '%s' "$P" | openssl dgst -sha256 -hmac "$PORTAL_SHARED_SECRET" -hex \
      | awk '{print $2}' | cut -c1-40)
-echo "http://localhost:3000/lab/1?p=$P&t=$T&slot=7"
+echo "http://localhost:3000/lab/1?k=$PORTAL_LINK_CODE&p=$P&t=$T&slot=7"
 ```
 
-One secret, one HMAC scheme, two services — rather than a second token list to keep
-in sync with the first. The token stops a student reading another student's progress
-by editing a URL and nothing more; Okta and the Cloud's own RBAC are the real access
-control.
+**`PORTAL_LINK_CODE` opens the portal.** It is a plain configured code, not a hash of
+anything — the training portal tried an HMAC of a secret and found that hashing a
+secret to produce one fixed string bought nothing over configuring that string. It
+tried daily rotation too, and that locked students out halfway through their own
+window. So expiry is an *action*, not a clock:
+
+```bash
+fly secrets set PORTAL_LINK_CODE=<new>    # every outstanding link dies at once
+```
+
+**`PORTAL_SHARED_SECRET` binds the identity.** Per-participant tokens are derived
+from it with the same HMAC scheme the Terraform state service uses, so one secret
+produces every token in the workshop and there is no second list to keep in sync.
+
+The two are deliberately different values. That secret is shared with the state
+service, so rotating it to retire a portal link would also break the state-backend
+auth that fifteen sandboxes are mid-apply with. The code retires links; the secret
+binds identity; neither rotation breaks the other.
+
+Both are lab aids, not access controls. The code keeps strangers out of the portal
+and the token stops one student reading another's progress by editing a URL. Okta and
+the Cloud's own RBAC are what actually protect anything.
+
+Deploy the code as a secret rather than plain config: six characters projected onto a
+wall are not much of a secret, but they are the only thing between a stranger and the
+portal, and a value in git is a value that outlives the workshop it was for.
 
 Instructor view: `/instructor?t=$PORTAL_INSTRUCTOR_TOKEN`. It lists every
 participant, which is why it has its own long-lived token — the student link gets

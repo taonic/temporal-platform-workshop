@@ -7,11 +7,13 @@ const MARK = { pass: '✓', fail: '×', blocked: '·' } as const;
 
 export function Checkpoints({
   lab,
+  code,
   participant,
   token,
   slot,
 }: {
   lab: number;
+  code: string;
   participant: string;
   token: string;
   slot: number;
@@ -24,8 +26,8 @@ export function Checkpoints({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/checkpoints?lab=${lab}&p=${encodeURIComponent(participant)}` +
-          `&t=${encodeURIComponent(token)}&slot=${slot}`,
+        `/api/checkpoints?lab=${lab}&k=${encodeURIComponent(code)}` +
+          `&p=${encodeURIComponent(participant)}&t=${encodeURIComponent(token)}&slot=${slot}`,
         { cache: 'no-store' },
       );
       if (!res.ok) {
@@ -40,7 +42,7 @@ export function Checkpoints({
     } finally {
       setLoading(false);
     }
-  }, [lab, participant, token, slot]);
+  }, [lab, code, participant, token, slot]);
 
   // Poll while the lab is in progress, so an apply turns checks green without
   // anybody touching the page. 15s is the training portal's interval and it is a
