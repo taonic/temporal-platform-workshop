@@ -25,11 +25,12 @@ tabs:
     type: code
     hostname: platform-workshop
     path: /workspace/platform
+  # No local dev server on this branch: the control plane runs on a Temporal
+  # Cloud namespace, so the UI is the real one.
   - id: temporal
     title: Temporal UI
-    type: service
-    hostname: platform-workshop
-    port: 8233
+    type: external
+    url: https://cloud.temporal.io
 difficulty: advanced
 timelimit: 5400
 ---
@@ -82,10 +83,9 @@ bootstrap; often times people miss that."* Put the import back.
 ### 4. Deploy it
 
 ```bash
-sudo systemctl start k3s
 nsctl worker manifest -c generated/worker-config.json \
   --image platform-worker:dev -o deploy/orders-staging-worker.yaml
-sudo k3s kubectl apply -f deploy/orders-staging-worker.yaml
+kubectl apply -f deploy/orders-staging-worker.yaml
 ```
 
 Read the manifest before you apply it. There is no credential in it, and none in
@@ -101,7 +101,7 @@ have to handle rather than watch.
 vault auth enable kubernetes
 vault write auth/kubernetes/config kubernetes_host="https://$(hostname -i):6443"
 vault policy write worker-orders - <<POLICY
-path "secret/data/namespaces/$WORKSHOP_PARTICIPANT/orders/*" { capabilities = ["read"] }
+path "secret/data/namespaces/$WORKSHOP_USERNAME/orders/*" { capabilities = ["read"] }
 POLICY
 vault write auth/kubernetes/role/worker-orders \
   bound_service_account_names=orders-staging-worker \
@@ -112,5 +112,5 @@ vault write auth/kubernetes/role/worker-orders \
 Fifteen lines of config, and the worker now authenticates as *itself*.
 
 ```bash
-sudo k3s kubectl logs -l app=orders-staging-worker --tail=20
+kubectl logs -l app=orders-staging-worker --tail=20
 ```

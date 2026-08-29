@@ -45,10 +45,9 @@ export const lab4: LabDef = {
     {
       label: 'Deploy it',
       command:
-        'sudo systemctl start k3s\n' +
-        'nsctl worker manifest -c generated/worker-config.json \\\n' +
+                'nsctl worker manifest -c generated/worker-config.json \\\n' +
         '  --image platform-worker:dev -o deploy/worker.yaml\n' +
-        'sudo k3s kubectl apply -f deploy/worker.yaml',
+        'kubectl apply -f deploy/worker.yaml',
       expect: 'Read the manifest first. There is no credential in it, and none in the image.',
     },
     {

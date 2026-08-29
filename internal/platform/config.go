@@ -35,6 +35,9 @@ type Config struct {
 	// DriftInterval is how often the reconciler asks the Cloud what is actually
 	// true, rather than what it was last told.
 	DriftInterval time.Duration
+	// NamespaceQuota is the account's namespace limit. Zero disables the check.
+	// The workshop runs 15 students at a peak of 3 namespaces each against 50.
+	NamespaceQuota int
 }
 
 func ConfigFromEnv() Config {
@@ -49,6 +52,7 @@ func ConfigFromEnv() Config {
 		VaultSinkPrefix:    env("VAULT_SINK_PREFIX", "namespaces"),
 		KeyTTL:             envDuration("PLATFORM_KEY_TTL", 24*time.Hour),
 		DriftInterval:      envDuration("PLATFORM_DRIFT_INTERVAL", 2*time.Minute),
+		NamespaceQuota:     envInt("PLATFORM_NAMESPACE_QUOTA", 50),
 	}
 }
 
@@ -59,7 +63,7 @@ func ConfigFromEnv() Config {
 // workflow id so that "one workflow, one state file, one resource" holds all the
 // way down.
 func (c Config) Backend(in EnvInput) (tfexec.Backend, error) {
-	key := fmt.Sprintf("%s/%s/%s", in.Participant, in.Spec.Name, in.Env)
+	key := fmt.Sprintf("%s/%s/%s", in.Username, in.Spec.Name, in.Env)
 
 	switch in.Spec.StateBackend {
 	case spec.BackendHTTP:
@@ -68,12 +72,12 @@ func (c Config) Backend(in EnvInput) (tfexec.Backend, error) {
 		}
 		return tfexec.HTTPBackend{
 			Address:  fmt.Sprintf("%s/state/%s", c.StateServiceURL, key),
-			Username: in.Participant,
+			Username: in.Username,
 			Password: c.StateToken,
 		}, nil
 
 	case spec.BackendLocal:
-		path := filepath.Join(c.StateDir, in.Participant, in.Spec.Name, in.Env+".tfstate")
+		path := filepath.Join(c.StateDir, in.Username, in.Spec.Name, in.Env+".tfstate")
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return nil, err
 		}
@@ -92,7 +96,7 @@ func (c Config) Backend(in EnvInput) (tfexec.Backend, error) {
 
 // SinkPath is where an environment's minted credential is written.
 func (c Config) SinkPath(in EnvInput) string {
-	return fmt.Sprintf("%s/%s/%s/%s", c.VaultSinkPrefix, in.Participant, in.Spec.Name, in.Env)
+	return fmt.Sprintf("%s/%s/%s/%s", c.VaultSinkPrefix, in.Username, in.Spec.Name, in.Env)
 }
 
 func env(k, def string) string {
@@ -100,6 +104,14 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func envInt(k string, def int) int {
+	v, err := strconv.Atoi(os.Getenv(k))
+	if err != nil || v < 0 {
+		return def
+	}
+	return v
 }
 
 func envDuration(k string, def time.Duration) time.Duration {

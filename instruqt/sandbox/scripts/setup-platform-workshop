@@ -54,6 +54,7 @@ log "build the control plane"
 go build -o /usr/local/bin/nsctl ./cmd/nsctl
 go build -o /usr/local/bin/platform-worker ./cmd/platform-worker
 
+
 log "python worker dependencies"
 (cd worker && uv sync --extra dev)
 
@@ -86,15 +87,16 @@ nohup temporal server start-dev --ip 0.0.0.0 --ui-port 8233 --db-filename /var/l
 for _ in $(seq 1 60); do temporal operator namespace list >/dev/null 2>&1 && break; sleep 1; done
 
 log "platform environment"
-PARTICIPANT="${INSTRUQT_PARTICIPANT_ID:-local}"
-STATE_TOKEN=$(printf '%s' "$PARTICIPANT" | openssl dgst -sha256 -hmac "$STATE_SHARED_SECRET" -hex | awk '{print $2}' | cut -c1-40)
+# No STATE_TOKEN here. It is an HMAC over the student's username, and the username
+# is chosen at the portal after this script has finished -- so the portal issues it
+# and `workshop-creds init --state-token` writes it. The shared secret stays out of
+# /etc/workshop/env for the same reason the Cloud key does.
 install -d /etc/workshop
 cat > /etc/workshop/env <<ENV
 export WORKSHOP_DIR=$WORKSHOP_DIR
-export WORKSHOP_PARTICIPANT=$PARTICIPANT
+export WORKSHOP_COHORT=\${WORKSHOP_COHORT:-\$(date +%Y-%m)}
 export WORKSHOP_RUN_ID=${INSTRUQT_TRACK_SLUG:-local}-$(date +%s)
 export STATE_SERVICE_URL=$STATE_SERVICE_URL
-export STATE_TOKEN=$STATE_TOKEN
 export VAULT_ADDR=$VAULT_ADDR
 export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
 export TEMPORAL_ADDRESS=localhost:7233
@@ -124,28 +126,17 @@ UNIT
 sed 's/^export //' /etc/workshop/env | grep -v '^\$PATH' > /etc/workshop/env.systemd
 systemctl daemon-reload && systemctl enable --now platform-worker
 
-log "lease a slot"
-# Slot, not participant id: Temporal Cloud reserves namespace names after
-# deletion, so names have to be recyclable.
-for _ in $(seq 1 20); do
-  if SLOT=$(nsctl slot lease --capacity 40 2>/dev/null); then break; fi
-  sleep 2
-done
-if [ -z "${SLOT:-}" ]; then echo "could not lease a slot" >&2; exit 1; fi
-echo "export WORKSHOP_SLOT=$SLOT" >> /etc/workshop/env
-echo "WORKSHOP_SLOT=$SLOT" >> /etc/workshop/env.systemd
-systemctl restart platform-worker
-log "slot $SLOT leased for $PARTICIPANT"
-
 log "your portal link"
 # One token, two services: the portal derives per-participant tokens with the same
 # HMAC scheme as the state service, so PORTAL_SHARED_SECRET holds the same value as
 # STATE_SHARED_SECRET and STATE_TOKEN works for both.
 if [ -n "${PORTAL_URL:-}" ] && [ -n "${PORTAL_LINK_CODE:-}" ]; then
-  # Four values: the code opens the portal, the token binds the identity, the slot
-  # names the resources. Rotating the code retires this link; rotating the shared
-  # secret would also break the state backend, which is why they are separate.
-  LINK="${PORTAL_URL}/lab/1?k=${PORTAL_LINK_CODE}&p=${PARTICIPANT}&t=${STATE_TOKEN}&slot=${SLOT}"
+  # A BARE join link: the sandbox cannot build a personalised one, because the
+  # student has not chosen their username yet. They pick it at the portal, the
+  # portal hands back the personalised link, and that URL is what they bookmark.
+  # Rotating the code retires every outstanding link; rotating the shared secret
+  # would also break the state backend, which is why they are separate.
+  LINK="${PORTAL_URL}/join?k=${PORTAL_LINK_CODE}"
   echo "export PORTAL_LINK='$LINK'" >> /etc/workshop/env
   printf '\n  %s\n\n' "$LINK"
 else

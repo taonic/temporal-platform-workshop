@@ -62,6 +62,21 @@ const Schema = z.object({
   PORTAL_COHORT_SIZE: z.coerce.number().int().positive().default(15),
   PORTAL_SANDBOX_URL: z.string().url().optional(),
 
+  /**
+   * Authentik, which is both the SAML IdP and the portal's own datastore: a
+   * student's username, cohort and state token live as user attributes, so there
+   * is no second database and nothing writes Authentik's schema behind its back.
+   */
+  AUTHENTIK_URL: z.string().url().optional(),
+  AUTHENTIK_TOKEN: z.string().optional(),
+  /**
+   * The identifier namespace for `<username>@<domain>`. No MX, no mailbox -- see
+   * DESIGN.md, *Identity via Authentik*.
+   */
+  WORKSHOP_DOMAIN: z.string().default('workshop.invalid'),
+  /** Tags every namespace this cohort creates, and scopes teardown. */
+  WORKSHOP_COHORT: z.string().default('local'),
+
   /** Override for non-production Cloud environments. */
   PORTAL_CLOUD_API_BASE: z.string().url().default('https://saas-api.tmprl.cloud'),
 

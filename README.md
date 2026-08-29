@@ -84,6 +84,55 @@ five snippets that no longer work. It needs `pnpm install` in `portal/`.
 
 You need Go 1.25+, Python 3.12+, `uv`, Terraform, Vault and the Temporal CLI.
 
+Vault is the one that is not a plain `brew install` -- on macOS it sits behind
+HashiCorp's tap, and there is no `apt` package worth using:
+
+```bash
+# macOS
+brew tap hashicorp/tap && brew install hashicorp/tap/vault
+
+# Linux, or to pin the version the sandbox uses
+VAULT_VERSION=1.18.3
+curl -fsSL -o /tmp/vault.zip \
+  "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
+sudo unzip -q -o /tmp/vault.zip -d /usr/local/bin && rm /tmp/vault.zip
+
+vault version
+```
+
+Server and CLI are the same binary, so that is the whole install. Use the binary
+rather than the Docker image: challenges 4 and 5 have students run `vault auth
+enable kubernetes` and `vault kv get` by hand, so it has to be on `PATH` regardless,
+and every command below assumes it is. The Instruqt sandbox installs it the same way
+-- see [instruqt/sandbox/scripts/setup-platform-workshop](instruqt/sandbox/scripts/setup-platform-workshop).
+
+On this branch there are two ways to run it: everything on k3s against Temporal
+Cloud, which is what the sandbox does, or the older all-host path.
+
+**On k3s, against Temporal Cloud** — see
+[deploy/platform/README.md](deploy/platform/README.md) for the full story:
+
+```bash
+k3d cluster create platform -p "30820:30820@server:0"   # macOS; Linux uses k3s
+export TEMPORAL_CLOUD_API_KEY=...
+make base-up            # k3s, Vault as a pod, kubernetes auth, seed the key
+unset TEMPORAL_CLOUD_API_KEY
+
+# --username is whatever you like locally; the portal issues it for a real cohort.
+./scripts/workshop-creds init --username me --cohort local
+source "$(./scripts/workshop-creds env-file)"
+terraform -chdir=terraform/namespace init
+./scripts/workshop-creds exec -- terraform -chdir=terraform/namespace apply
+./scripts/workshop-creds control
+source "$(./scripts/workshop-creds env-file)" && make platform-up
+```
+
+**All on the host**, with no cluster — still the fastest inner loop, since the
+worker is a local binary rather than an image:
+
+At any point, `make check` probes tools, cluster, Vault, egress and the control
+plane. `make` on its own lists every verb.
+
 ```bash
 make build
 
@@ -105,6 +154,9 @@ export STATE_DIR=.platform-state
 ./bin/nsctl new
 ./bin/nsctl apply -f specs/<name>.yaml
 ```
+
+Note the Vault address differs: `8200` for a host Vault, `30820` for the pod's
+NodePort. `workshop-creds` defaults to the latter, and `VAULT_ADDR` overrides it.
 
 For the declarative path, `git config core.hooksPath hooks`, then commit a spec and
 watch `nsctl status <name>`.

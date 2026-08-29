@@ -18,8 +18,6 @@ func Register(w worker.Worker, a *Activities) {
 	w.RegisterWorkflow(DestroyEnvironmentWorkflow)
 
 	// Housekeeping that makes a self-paced cohort possible.
-	w.RegisterWorkflow(SlotPoolWorkflow)
-	w.RegisterWorkflow(ReaperWorkflow)
 
 	w.RegisterActivity(a)
 }

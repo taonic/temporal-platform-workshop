@@ -23,11 +23,12 @@ tabs:
     type: code
     hostname: platform-workshop
     path: /workspace/platform
+  # No local dev server on this branch: the control plane runs on a Temporal
+  # Cloud namespace, so the UI is the real one.
   - id: temporal
     title: Temporal UI
-    type: service
-    hostname: platform-workshop
-    port: 8233
+    type: external
+    url: https://cloud.temporal.io
 difficulty: advanced
 timelimit: 2700
 ---
@@ -45,7 +46,8 @@ credential.
 <summary>If you get stuck, the shape of it</summary>
 
 ```bash
-nsctl new --non-interactive --name payments --owner risk-team --retention 7
+nsctl new --non-interactive --name payments --owner risk-team --retention 7 \
+  --environments staging
 nsctl apply -f specs/payments.yaml
 # write a decorated workflow
 nsctl worker gen-config --out generated/payments.json

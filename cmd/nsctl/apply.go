@@ -27,7 +27,7 @@ func applyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			participant, slot, err := identity(cmd)
+			username, cohort, err := identity(cmd)
 			if err != nil {
 				return err
 			}
@@ -42,15 +42,15 @@ func applyCmd() *cobra.Command {
 			defer cancel()
 
 			in := platform.ReconcileInput{
-				Spec:        *s,
-				Slot:        slot,
-				Participant: participant,
-				RunID:       envOr("WORKSHOP_RUN_ID", "local"),
+				Spec:     *s,
+				Username: username,
+				Cohort:   cohort,
+				RunID:    envOr("WORKSHOP_RUN_ID", "local"),
 			}
 
 			fmt.Printf("provisioning %s for %s\n", s.Name, s.Owner)
 			for _, e := range s.Environments {
-				fmt.Printf("  %s -> %s\n", e, s.PhysicalName(slot, e))
+				fmt.Printf("  %s -> %s\n", e, s.PhysicalName(username, e))
 			}
 			fmt.Println()
 

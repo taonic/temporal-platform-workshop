@@ -24,11 +24,12 @@ tabs:
     type: code
     hostname: platform-workshop
     path: /workspace/platform
+  # No local dev server on this branch: the control plane runs on a Temporal
+  # Cloud namespace, so the UI is the real one.
   - id: temporal
     title: Temporal UI
-    type: service
-    hostname: platform-workshop
-    port: 8233
+    type: external
+    url: https://cloud.temporal.io
 difficulty: intermediate
 timelimit: 3600
 ---
@@ -61,23 +62,39 @@ id, no token. Whatever a workflow returns is written to its event history, reada
 by anyone who can see the workflow, for the whole retention period. A credential in
 a return value is a credential in an audit log you cannot redact.
 
-### 2. Prove the lock is real
-
-Deploy it, then while an apply is running, try to start the same child again:
+### 2. Ship it to the control plane
 
 ```bash
-temporal workflow start --type EnvironmentWorkflow --task-queue platform-control-plane \
+make reload
+```
+
+The Go you just wrote is compiled into the worker image, and the running Deployment
+still holds the stub. `make reload` rebuilds it, hands it to the kubelet and rolls
+the Deployment — about forty seconds, the same loop as challenge 1.
+
+Skip it and the next command fails with the stub's own non-retryable error. That is
+at least an honest failure: the stub returns a real message rather than panicking,
+so it propagates through the parent workflow, the CLI and the Cloud UI.
+
+### 3. Prove the lock is real
+
+With the new code live, start an apply — then while it runs, try to start the
+same child again:
+
+```bash
+./scripts/workshop-creds exec -- \
+  temporal workflow start --type EnvironmentWorkflow --task-queue platform-control-plane \
   --workflow-id ns-<name>-staging --input '{}'
 ```
 
 And ask the state service for a lock:
 
 ```bash
-curl -s -X LOCK -u "$WORKSHOP_PARTICIPANT:$STATE_TOKEN" \
-  "$STATE_SERVICE_URL/state/$WORKSHOP_PARTICIPANT/<name>/staging"
+curl -s -X LOCK -u "$WORKSHOP_USERNAME:$STATE_TOKEN" \
+  "$STATE_SERVICE_URL/state/$WORKSHOP_USERNAME/<name>/staging"
 ```
 
-### 3. Least privilege, and how little it needs
+### 4. Least privilege, and how little it needs
 
 The service account you wrote in lab 1 is `namespace_scoped_access` with `write` —
 no account-level access at all. A worker polls a task queue and completes tasks; it
@@ -92,7 +109,7 @@ You hold Global Admin right now because this is a workshop and you need to see
 everything. Your platform holds Developer, because that is what production looks
 like. Notice that it was enough.
 
-### 4. Break one environment
+### 5. Break one environment
 
 Set an impossible region for `prod` in the spec and re-apply. Staging succeeds, prod
 fails, and you get both results. A platform that collapses that into one error is

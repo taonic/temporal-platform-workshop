@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Delete one cohort's namespaces, Cloud users and Authentik users.
+#
+#   workshop-teardown <cohort>            show what would go
+#   workshop-teardown <cohort> --confirm  actually delete it
+#
+# Run deliberately after a workshop, not on a timer. There is no reaper: a
+# 15-seat cohort inside a 50-namespace quota, with the portal refusing
+# registration past the cap, prevents the pressure a reaper existed to relieve --
+# and an unattended process deleting namespaces is how a student who came back
+# from lunch loses their work.
+#
+# It scopes itself by the `cohort` TAG the reconciler writes, not by matching the
+# `ws-` prefix. Deletion is irreversible and prefix-matching has no guard: a
+# namespace someone made by hand, or last cohort's leftovers, would go with it.
+set -euo pipefail
+
+COHORT="${1:-}"
+CONFIRM="${2:-}"
+[ -n "$COHORT" ] || { echo "usage: workshop-teardown <cohort> [--confirm]" >&2; exit 2; }
+
+: "${TEMPORAL_CLOUD_API_KEY:?an account-owner key -- deleting users is an admin operation}"
+AUTHENTIK_URL="${AUTHENTIK_URL:-}"
+AUTHENTIK_TOKEN="${AUTHENTIK_TOKEN:-}"
+
+dry() { [ "$CONFIRM" = "--confirm" ] && return 1 || return 0; }
+say() { printf '  %s %s\n' "$(dry && echo 'would delete' || echo 'deleting    ')" "$1"; }
+
+echo "==> namespaces tagged cohort=$COHORT"
+# -o json rather than parsing the table: column layout is not an interface.
+namespaces=$(temporal cloud namespace list -o json --api-key "$TEMPORAL_CLOUD_API_KEY" \
+  | jq -r --arg c "$COHORT" '
+      [.. | objects | select(.spec?.name?)]
+      | map(select(.spec.tags[$c]? != null or (.spec.tags?|to_entries[]?|select(.key=="cohort" and .value==$c))))
+      | .[].namespace // empty' 2>/dev/null || true)
+
+if [ -z "$namespaces" ]; then
+  echo "  none found. Either the cohort is already gone, or the reconciler did not tag it."
+else
+  for ns in $namespaces; do
+    say "$ns"
+    dry || temporal cloud namespace delete --namespace "$ns" \
+      --api-key "$TEMPORAL_CLOUD_API_KEY" --idempotent >/dev/null
+  done
+fi
+
+echo "==> Authentik users in cohort $COHORT"
+if [ -z "$AUTHENTIK_URL" ] || [ -z "$AUTHENTIK_TOKEN" ]; then
+  echo "  skipped: set AUTHENTIK_URL and AUTHENTIK_TOKEN to include them"
+else
+  # The portal stores the cohort as a user attribute, which is what makes this
+  # scoped rather than "every user in the tenant".
+  users=$(curl -fsS -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
+    "$AUTHENTIK_URL/api/v3/core/users/?attributes=%7B%22cohort%22%3A%22$COHORT%22%7D" \
+    | jq -r '.results[]? | "\(.pk):\(.username)"' || true)
+  for u in $users; do
+    say "authentik ${u#*:}"
+    dry || curl -fsS -X DELETE -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
+      "$AUTHENTIK_URL/api/v3/core/users/${u%%:*}/" >/dev/null
+    # The Cloud user shares the username; deleting it is what frees the 300-user
+    # account limit across cohorts.
+    say "cloud ${u#*:}"
+    dry || temporal cloud user delete --user-email "${u#*:}@${WORKSHOP_DOMAIN:-example.invalid}" \
+      --api-key "$TEMPORAL_CLOUD_API_KEY" --idempotent >/dev/null 2>&1 || true
+  done
+fi
+
+echo
+if dry; then
+  echo "Nothing was deleted. Re-run with --confirm."
+else
+  echo "Cohort $COHORT torn down."
+fi

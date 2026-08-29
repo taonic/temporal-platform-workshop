@@ -31,6 +31,15 @@ export const lab3: LabDef = {
         'TestReconcilerIgnoresAnApplyThatChangesNothing proves the signal half.',
     },
     {
+      label: 'Ship it to the control plane',
+      command: 'make reload',
+      expect:
+        'The Go you just wrote is compiled into the worker image, and the running Deployment still has ' +
+        'the stub. make reload rebuilds, reimports and rolls it -- about forty seconds. Skip it and ' +
+        'the apply below fails with the stub\'s own non-retryable error, which is at least honest ' +
+        'about what happened.',
+    },
+    {
       label: 'Deliver intent by committing',
       command: 'git add specs && git commit -m "ask for a namespace"',
       expect:
@@ -60,10 +69,13 @@ export const lab3: LabDef = {
         'Signals carry intent; the timer catches reality.',
     },
     {
-      label: 'Remove an environment from the spec and commit',
+      label: 'Remove an environment from the spec and commit -- not optional',
       expect:
         'It is destroyed. Convergence means removing what is no longer desired, not only adding ' +
-        'what is -- the half people forget.',
+        'what is -- the half people forget. It is also load-bearing for everyone else: the account ' +
+        'holds 50 namespaces against 15 students at a peak of three each, and challenge 5 gives you ' +
+        'a second spec. This removal is what makes room for it. Skip it and you hold four; enough ' +
+        'people skipping and the apply that fails is somebody else\'s.',
     },
   ],
 

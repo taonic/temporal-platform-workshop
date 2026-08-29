@@ -27,12 +27,12 @@ export interface CheckpointResult extends CheckpointDef {
   observed?: string;
 }
 
-/** Per-student values, derived from the slot. Snippets and checks share them. */
+/** Per-student values, derived from the username. Snippets and checks share them. */
 export interface SnippetContext {
-  participant: string;
-  slot: number;
+  /** The name the student chose at the join screen. It names everything downstream. */
+  username: string;
   accountId: string;
-  /** ws-<slot>-<spec>-staging. The spec name is the student's, so this is a pattern. */
+  /** ws-<username>-<spec>-staging. The spec name is the student's, so this is a pattern. */
   namespacePattern: string;
   stagingSuffix: string;
   prodSuffix: string;
@@ -48,9 +48,9 @@ export interface SnippetContext {
 
 /** Everything a lab's grade() can read, memoised for the request. */
 export interface GradeContext extends SnippetContext {
-  /** Namespaces in the account tagged with this participant. */
+  /** Namespaces in the account belonging to this student. */
   mine(): CloudNamespace[];
-  /** One of the participant's namespaces by environment, if it exists yet. */
+  /** One of the student's namespaces by environment, if it exists yet. */
   env(environment: 'staging' | 'prod'): CloudNamespace | undefined;
   serviceAccounts(): CloudServiceAccount[];
   mk(id: string, status: CheckpointStatus, observed?: string): CheckpointResult;
@@ -129,8 +129,7 @@ export interface LabDef {
 
 export interface GradeResult {
   lab: number;
-  participant: string;
-  slot: number;
+  username: string;
   checkedAtMs: number;
   results: CheckpointResult[];
   /** Objective only: a self-attested check should not read as verified. */

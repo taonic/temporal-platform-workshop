@@ -51,7 +51,7 @@ func statusCmd() *cobra.Command {
 				return enc.Encode(st)
 			}
 
-			fmt.Printf("%s  (slot %d, generation %d)\n", st.Spec.Name, st.Slot, st.Generation)
+			fmt.Printf("%s  (%s, generation %d)\n", st.Spec.Name, st.Username, st.Generation)
 			fmt.Printf("  owner %s   tier %s   retention %dd\n", st.Spec.Owner, st.Spec.Tier, st.Spec.RetentionDays)
 			fmt.Printf("  reconciles %d   drifts detected %d\n", st.Reconciles, st.DriftsDetected)
 			if st.LastDrift != "" {

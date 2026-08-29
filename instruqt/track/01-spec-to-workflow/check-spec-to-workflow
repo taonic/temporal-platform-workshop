@@ -11,7 +11,7 @@ SPEC=$(ls specs/*.yaml 2>/dev/null | grep -v '_example' | head -1)
 
 NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
 RETENTION=$(grep '^retentionDays:' "$SPEC" | awk '{print $2}')
-NS="ws-${WORKSHOP_SLOT}-${NAME}-staging"
+NS="ws-${WORKSHOP_USERNAME}-${NAME}-staging"
 
 # The Ops API is the source of truth. A file on disk proves intent, not outcome.
 OUT=$(temporal cloud namespace get --name "$NS" -o json 2>/dev/null) \

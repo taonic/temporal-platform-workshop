@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/taonic/temporal-platform-workshop/internal/spec"
 	"go.temporal.io/sdk/client"
 )
 
@@ -31,11 +33,11 @@ func main() {
   nsctl status <name>       what the reconciler thinks is true
   nsctl worker gen-config   generate worker config from the decorated workflows
   nsctl worker manifest     template the Kubernetes deployment
-  nsctl slot / nsctl reap   platform housekeeping`,
+  nsctl status              what the reconciler believes`,
 		SilenceUsage: true,
 	}
 
-	root.AddCommand(newCmd(), applyCmd(), syncCmd(), statusCmd(), workerCmd(), slotCmd(), reapCmd())
+	root.AddCommand(newCmd(), applyCmd(), syncCmd(), statusCmd(), workerCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -69,31 +71,34 @@ func envOr(k, def string) string {
 }
 
 // identity resolves the platform-assigned facts that are deliberately not in the
-// spec: which participant this is and which slot they hold.
-func identity(cmd *cobra.Command) (participant string, slot int, err error) {
-	participant, _ = cmd.Flags().GetString("participant")
-	if participant == "" {
-		participant = os.Getenv("WORKSHOP_PARTICIPANT")
+// spec: who this is, and which cohort they belong to.
+//
+// One identifier, chosen by the student at the join screen. It names their
+// namespaces, their Vault paths, their tfstate paths and the tag the grader
+// reads -- so it is validated here as well as at the portal, because the same
+// rejection arriving from inside a Terraform activity reads as a broken module.
+func identity(cmd *cobra.Command) (username, cohort string, err error) {
+	username, _ = cmd.Flags().GetString("username")
+	if username == "" {
+		username = os.Getenv("WORKSHOP_USERNAME")
 	}
-	if participant == "" {
-		participant = "local"
+	if username == "" {
+		return "", "", fmt.Errorf(
+			"no username. Set $WORKSHOP_USERNAME or pass --username.\n" +
+				"It is the name you chose at the workshop portal; ./scripts/workshop-creds init writes it")
+	}
+	if err := spec.ValidateUsername(username); err != nil {
+		return "", "", err
 	}
 
-	slot, _ = cmd.Flags().GetInt("slot")
-	if slot == 0 {
-		if v := os.Getenv("WORKSHOP_SLOT"); v != "" {
-			if _, scanErr := fmt.Sscanf(v, "%d", &slot); scanErr != nil {
-				return "", 0, fmt.Errorf("WORKSHOP_SLOT=%q is not a number", v)
-			}
-		}
+	cohort, _ = cmd.Flags().GetString("cohort")
+	if cohort == "" {
+		cohort = envOr("WORKSHOP_COHORT", "local")
 	}
-	if slot == 0 {
-		slot = 1 // local development gets slot 1
-	}
-	return participant, slot, nil
+	return username, cohort, nil
 }
 
 func addIdentityFlags(c *cobra.Command) {
-	c.Flags().String("participant", "", "Instruqt participant id (default $WORKSHOP_PARTICIPANT)")
-	c.Flags().Int("slot", 0, "leased slot number (default $WORKSHOP_SLOT)")
+	c.Flags().String("username", "", "your workshop username (default $WORKSHOP_USERNAME)")
+	c.Flags().String("cohort", "", "cohort id, used as a teardown tag (default $WORKSHOP_COHORT)")
 }

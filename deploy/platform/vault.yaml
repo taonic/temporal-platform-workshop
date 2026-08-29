@@ -1,0 +1,92 @@
+# Vault, in dev mode, as the sandbox's secret store.
+#
+# Dev mode on purpose: it is in-memory, unsealed, and it has a known root token,
+# which is exactly what challenge 4 needs in order to have something to take
+# away. The switch from that root token to Kubernetes auth is the graded step.
+#
+# Not a StatefulSet and no volume: dev-mode Vault loses everything on restart by
+# design. That is survivable here because the only durable secret is the
+# platform's own Cloud API key, and setup re-seeds it. If this pod restarts
+# mid-workshop the minted namespace keys are gone and the reconciler mints new
+# ones on the next reconcile, which is the behaviour we want to be true anyway.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: platform
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: platform
+spec:
+  selector:
+    app: vault
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      serviceAccountName: vault
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.18.3
+          args: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+          env:
+            - name: VAULT_DEV_ROOT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: platform-bootstrap
+                  key: vault-root-token
+            - name: VAULT_ADDR
+              value: http://127.0.0.1:8200
+          ports:
+            - containerPort: 8200
+          # Vault needs mlock or the capability waived. Dev mode disables mlock,
+          # but IPC_LOCK is still what the image expects to find.
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true
+              port: 8200
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "500m", memory: 512Mi }
+---
+# NodePort so the student's `vault` CLI on the host still works unchanged.
+# Challenges 1 to 5 all have students run `vault kv get` by hand, and a
+# port-forward that dies silently is a worse failure than an extra Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-external
+  namespace: platform
+spec:
+  type: NodePort
+  selector:
+    app: vault
+  ports:
+    - name: http
+      port: 8200
+      targetPort: 8200
+      nodePort: 30820

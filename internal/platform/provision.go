@@ -6,6 +6,7 @@ import (
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -21,7 +22,7 @@ import (
 // children, different driver.
 func ProvisionWorkflow(ctx workflow.Context, in ReconcileInput) ([]EnvStatus, error) {
 	log := workflow.GetLogger(ctx)
-	log.Info("provisioning", "spec", in.Spec.Name, "slot", in.Slot, "environments", in.Spec.Environments)
+	log.Info("provisioning", "spec", in.Spec.Name, "username", in.Username, "environments", in.Spec.Environments)
 
 	statuses := reconcileEnvironments(ctx, in, nil)
 
@@ -56,6 +57,17 @@ func reconcileEnvironments(ctx workflow.Context, in ReconcileInput, prior map[st
 	// non-deterministic and a replay would start children in a different order.
 	envs := append([]string(nil), in.Spec.Environments...)
 	sort.Strings(envs)
+
+	// Quota before work, not after. The workshop runs against a fixed namespace
+	// quota with a handful spare, and the failure this prevents is the worst one
+	// available: the Cloud's own quota error surfacing from inside a Terraform
+	// activity, where it reads as a broken module and lands on whoever applies
+	// next rather than on whoever consumed the last namespace.
+	//
+	// Deliberately in the parent rather than in EnvironmentWorkflow: the child is
+	// a lab stub a student writes, and a policy the platform enforces should not
+	// be something a student can forget to include.
+	checkQuota(ctx, in, envs)
 
 	type pending struct {
 		env    string
@@ -103,4 +115,24 @@ func reconcileEnvironments(ctx workflow.Context, in ReconcileInput, prior map[st
 		out = append(out, st)
 	}
 	return out
+}
+
+// checkQuota fails fast, and only on a definite answer.
+//
+// Advisory by design. A quota check that cannot reach the Cloud must not stop a
+// workshop, so CheckQuota itself swallows read failures; what propagates here is
+// only the non-retryable "the account is full" case.
+func checkQuota(ctx workflow.Context, in ReconcileInput, envs []string) {
+	actx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+	})
+	var actv *Activities
+	for _, env := range envs {
+		err := workflow.ExecuteActivity(actx, actv.CheckQuota,
+			EnvInput{ReconcileInput: in, Env: env}).Get(actx, nil)
+		if err != nil {
+			workflow.GetLogger(ctx).Error("quota check failed", "env", env, "error", err.Error())
+		}
+	}
 }

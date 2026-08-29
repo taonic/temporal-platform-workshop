@@ -15,15 +15,15 @@ const TaskQueue = "platform-control-plane"
 
 // ReconcileInput is everything the control plane needs to act on one spec.
 //
-// Spec is what the team asked for. Slot and Participant are platform-assigned and
-// deliberately absent from the spec file: a team should not be able to pick its
-// own slot, and the boundary between "what you asked for" and "what the platform
-// decided" is the boundary the whole workshop is about.
+// Spec is what the team asked for. Username and Cohort are platform-assigned and
+// deliberately absent from the spec file: the boundary between "what you asked
+// for" and "what the platform decided" is the boundary the whole workshop is
+// about.
 type ReconcileInput struct {
-	Spec        spec.Spec `json:"spec"`
-	Slot        int       `json:"slot"`
-	Participant string    `json:"participant"`
-	RunID       string    `json:"runId"`
+	Spec     spec.Spec `json:"spec"`
+	Username string    `json:"username"`
+	Cohort   string    `json:"cohort"`
+	RunID    string    `json:"runId"`
 
 	// DriftIntervalSeconds is how often the reconciler asks the Cloud what is
 	// actually true. It travels in the input rather than being read from worker
@@ -62,7 +62,7 @@ type EnvInput struct {
 
 // PhysicalName is the namespace this environment will produce.
 func (in EnvInput) PhysicalName() string {
-	return in.Spec.PhysicalName(in.Slot, in.Env)
+	return in.Spec.PhysicalName(in.Username, in.Env)
 }
 
 // NamespaceTags is the COMPLETE tag set for this namespace.
@@ -75,8 +75,13 @@ func (in EnvInput) PhysicalName() string {
 // change nobody committed.
 func (in EnvInput) NamespaceTags() map[string]string {
 	tags := in.Spec.Tags(in.Env, in.RunID)
-	if in.Participant != "" {
-		tags["participant"] = in.Participant
+	if in.Username != "" {
+		tags["username"] = in.Username
+	}
+	// The cohort tag is what teardown deletes by. Matching the ws- prefix instead
+	// would be an irreversible operation with no guard on it.
+	if in.Cohort != "" {
+		tags["cohort"] = in.Cohort
 	}
 	if in.DriftCorrectedAt != "" {
 		tags["drift-corrected-at"] = in.DriftCorrectedAt
@@ -118,7 +123,7 @@ type EnvStatus struct {
 // not a cron job.
 type Status struct {
 	Spec           spec.Spec   `json:"spec"`
-	Slot           int         `json:"slot"`
+	Username       string      `json:"username"`
 	Generation     int         `json:"generation"`
 	Environments   []EnvStatus `json:"environments"`
 	Reconciles     int         `json:"reconciles"`

@@ -53,8 +53,14 @@ func newCmd() *cobra.Command {
 				return err
 			}
 
+			// Best effort: the spec is written and valid either way. Without a
+			// username we simply cannot show the physical names yet.
+			username, _, idErr := identity(cmd)
+
 			fmt.Printf("\nWrote %s\n\n", path)
-			fmt.Printf("  %-14s %s\n", "namespaces", strings.Join(physicalNames(&s), ", "))
+			if idErr == nil {
+				fmt.Printf("  %-14s %s\n", "namespaces", strings.Join(physicalNames(&s, username), ", "))
+			}
 			fmt.Printf("  %-14s %s\n", "fingerprint", s.Fingerprint())
 			fmt.Println()
 			fmt.Println("Next:")
@@ -73,6 +79,7 @@ func newCmd() *cobra.Command {
 	c.Flags().StringVar(&backend, "state-backend", spec.BackendHTTP, "http, local or s3")
 	c.Flags().BoolVar(&nonInteractive, "non-interactive", false, "take every value from flags, ask nothing")
 	c.Flags().StringVar(&dir, "dir", defaultSpecDir, "directory to write the spec into")
+	addIdentityFlags(c)
 
 	return c
 }
@@ -161,10 +168,10 @@ func orZero(v, def int) int {
 	return v
 }
 
-func physicalNames(s *spec.Spec) []string {
+func physicalNames(s *spec.Spec, username string) []string {
 	out := make([]string, 0, len(s.Environments))
 	for _, e := range s.Environments {
-		out = append(out, s.PhysicalName(1, e)+" (slot 1)")
+		out = append(out, s.PhysicalName(username, e))
 	}
 	return out
 }

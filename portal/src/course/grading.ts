@@ -4,32 +4,30 @@ import type { CheckpointResult, CheckpointStatus, GradeContext, GradeResult } fr
 import { readInventory, type CloudNamespace } from '@/platform/cloud';
 
 /**
- * Grade one lab for one participant.
+ * Grade one lab for one student.
  *
  * The account is read once and every checkpoint shares it, so a lab with five
  * checks costs one pair of API calls rather than ten. The training portal learned
  * that the hard way against a 180-requests-per-hour account budget.
  */
-export async function gradeLab(n: number, participant: string, slot: number): Promise<GradeResult> {
+export async function gradeLab(n: number, username: string): Promise<GradeResult> {
   const def = lab(n);
   if (!def) throw new Error(`unknown lab ${n}`);
 
   const inventory = await readInventory();
 
-  // Namespaces belonging to this participant. Tag first, name second: the tag is
-  // authoritative, and the name check catches a namespace made before the
-  // participant tag existed.
+  // Namespaces belonging to this student. Tag first, name second: the tag is
+  // authoritative, and the name check catches one made before the tag existed.
   const mine = inventory.namespaces.filter((ns) => {
-    if (ns.tags['participant'] === participant) return true;
-    const parsed = parsePhysicalName(ns.spec.name ?? '');
-    return parsed?.slot === slot;
+    if (ns.tags['username'] === username) return true;
+    return parsePhysicalName(ns.spec.name ?? '', username) !== undefined;
   });
 
   const byEnv = (environment: 'staging' | 'prod'): CloudNamespace | undefined =>
     mine.find(
       (ns) =>
         ns.tags['environment'] === environment ||
-        parsePhysicalName(ns.spec.name ?? '')?.environment === environment,
+        parsePhysicalName(ns.spec.name ?? '', username)?.environment === environment,
     );
 
   const defs = new Map(def.checkpoints.map((c) => [c.id, c]));
@@ -40,7 +38,7 @@ export async function gradeLab(n: number, participant: string, slot: number): Pr
   };
 
   const ctx: GradeContext = {
-    ...snippetContext(participant, slot),
+    ...snippetContext(username),
     mine: () => mine,
     env: byEnv,
     serviceAccounts: () => inventory.serviceAccounts,
@@ -57,8 +55,7 @@ export async function gradeLab(n: number, participant: string, slot: number): Pr
   const verifiable = results.filter((r) => !r.selfAttested);
   return {
     lab: n,
-    participant,
-    slot,
+    username,
     checkedAtMs: Date.now(),
     results,
     verified: verifiable.filter((r) => r.status === 'pass').length,
@@ -68,10 +65,11 @@ export async function gradeLab(n: number, participant: string, slot: number): Pr
 }
 
 export interface CohortRow {
-  slot: number;
-  participant?: string;
+  username: string;
+  cohort?: string;
   specs: string[];
   environments: string[];
+  namespaces: number;
   driftCorrected: boolean;
   lastState?: string;
 }
@@ -82,27 +80,42 @@ export interface CohortRow {
  * The training portal's README calls this "the fastest way to see who is stuck --
  * a student with no namespace after ten minutes is visible without asking." In a
  * self-paced cohort nobody can walk the room, so it matters more here, not less.
+ *
+ * It also counts namespaces per student, because the workshop runs 15 students at
+ * a peak of three against a quota of 50 with five spare -- so "who is holding
+ * four" is a number an instructor needs before the account fills up.
  */
 export async function readCohort(): Promise<CohortRow[]> {
   const { namespaces } = await readInventory();
-  const bySlot = new Map<number, CohortRow>();
+  const byUser = new Map<string, CohortRow>();
 
   for (const ns of namespaces) {
-    const parsed = parsePhysicalName(ns.spec.name ?? '');
-    if (!parsed) continue; // not a workshop namespace
+    // The tag is authoritative; the name is the fallback, and without a known
+    // username it splits at the last hyphen -- right for every single-word spec.
+    const username = ns.tags['username'] ?? parsePhysicalName(ns.spec.name ?? '')?.username;
+    if (!username) continue; // not a workshop namespace
+    const parsed = parsePhysicalName(ns.spec.name ?? '', username);
+    if (!parsed) continue;
 
     const row =
-      bySlot.get(parsed.slot) ??
-      ({ slot: parsed.slot, specs: [], environments: [], driftCorrected: false } as CohortRow);
+      byUser.get(username) ??
+      ({
+        username,
+        specs: [],
+        environments: [],
+        namespaces: 0,
+        driftCorrected: false,
+      } as CohortRow);
 
-    row.participant ??= ns.tags['participant'];
+    row.cohort ??= ns.tags['cohort'];
+    row.namespaces += 1;
     if (!row.specs.includes(parsed.spec)) row.specs.push(parsed.spec);
     if (!row.environments.includes(parsed.environment)) row.environments.push(parsed.environment);
     if (ns.tags['drift-corrected-at']) row.driftCorrected = true;
     row.lastState = ns.state;
 
-    bySlot.set(parsed.slot, row);
+    byUser.set(username, row);
   }
 
-  return [...bySlot.values()].sort((a, b) => a.slot - b.slot);
+  return [...byUser.values()].sort((a, b) => a.username.localeCompare(b.username));
 }

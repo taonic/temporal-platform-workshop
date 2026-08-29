@@ -70,7 +70,7 @@ Three planes, mirroring the talk's own architecture slide.
 
   SUPPORTING SERVICES
     tfstate service — HTTP backend on Fly.io, per-student, volume-backed, no locking
-    Okta tenant     — SAML IdP. 15 fixed slot-bound identities. No mail anywhere
+    Authentik       — SAML IdP on Fly. Usernames chosen at join. No mail anywhere
 ```
 
 ### The language seam
@@ -110,8 +110,9 @@ punchline: **the control plane's first customer is itself.**
 
 ## Load-bearing design rules
 
-Seven rules carry the design. Each one is a lesson as much as an implementation
-choice.
+Nine rules carry the design. Each one is a lesson as much as an implementation
+choice — except the last two, which are constraints on how the other seven get
+built and maintained.
 
 ### 1. Workflow ID is the resource identity, so Temporal is the lock
 
@@ -188,6 +189,78 @@ emitted by Python, consumed by the Python worker at boot *and* by the Go CLI whe
 it templates the k8s manifest. `schema.json` and the golden round-trip fixture
 guard that file only.
 
+### 8. The tutorial runs on a laptop and in the sandbox, from one set of commands
+
+Every challenge must be runnable on a developer's own machine — macOS included —
+and inside the Instruqt sandbox, from the same repo, with the same lab text. Not
+"portable in principle": actually run, both places, before a cohort.
+
+Two reasons, and the first is selfish. The track is authored and tested on a Mac.
+A workshop that can only be exercised inside Instruqt has a feedback loop measured
+in sandbox rebuilds, which means it gets exercised rarely and the bugs are found by
+students. The second is that a platform engineer who wants to keep going after the
+workshop has a repo that works, rather than one that assumed a VM somebody else
+paid for.
+
+This is a constraint on implementation, not a feature, and it has teeth:
+
+- **No systemd anywhere a student touches.** macOS has no `systemctl`. Long-running
+  services are pods; scripts that must know detect the init system rather than
+  assuming one. This is the single biggest reason the control plane moved from a
+  systemd unit to a Deployment.
+- **One address for a service, correct in both places.** Vault runs in the cluster
+  and its CLI runs on the host — every challenge reads a secret by hand — so it is
+  reached on a NodePort, not on `127.0.0.1:8200`. NodePort routing is **not**
+  universal: k3s on the sandbox routes it (the host *is* the node), k3d needs
+  `-p "30820:30820@server:0"` at cluster creation, and Docker Desktop's kind-based
+  Kubernetes does not publish NodePorts to the host at all. So bring-up probes the
+  port and falls back to a `kubectl port-forward` on the same number. The address in
+  the lab text is identical everywhere, which is the whole point.
+- **Image delivery branches on the cluster, not the OS.** k3s runs its own
+  containerd and needs `ctr images import`; k3d wraps that; Docker Desktop shares
+  the Docker daemon and needs no import at all. `make k3s-import` asks which it is.
+- **Every input falls back: argument, environment, prompt.** `workshop-creds` is
+  driven non-interactively by the sandbox, where the values are already in
+  `/etc/workshop/env`, and asks on a laptop, where they are not. Nothing requires a
+  TTY unless a value is genuinely missing. Its env file is `/etc/workshop/env` as
+  root and `~/.workshop-env` otherwise.
+
+What this does **not** mean is parity of provisioning. The sandbox pre-warms the
+Terraform provider cache and pre-builds the worker image; a laptop pays those costs
+on first use. The lab commands are the same. The setup is not, and
+pretending otherwise would mean shipping a laptop setup nobody runs.
+
+### 9. A change is not done until the lab says so
+
+The lab text is the interface. Nobody exercises this workshop by reading the repo —
+they follow the instructions, in order, typing what they are told to type. A change
+that lands in the code but not in the lab text is therefore not a partial change.
+It is a broken workshop, and it breaks at the exact moment someone is trusting the
+instructions rather than checking them.
+
+So every change to **what a student types, what they see, or what must be true
+before a step** carries its lab edit in the same commit. There are two surfaces and
+both are load-bearing:
+
+| Surface | What it is |
+|---|---|
+| `portal/src/course/labs/lab<n>.ts` | the portal's steps, snippets and checkpoints |
+| `instruqt/track/<nn>-*/assignment.md` | the in-sandbox text, and the tab config |
+
+The failure mode is specific and unusually expensive. Someone follows a stale
+instruction, hits an error the code does not actually have, and debugs the wrong
+thing — the instruction, the environment and the code all disagree, and only one of
+them is wrong. Two changes in this design would have done exactly that: moving Vault
+into k3s changed its address from `127.0.0.1:8200` to a NodePort, so every
+`vault kv get` in the lab text would have failed for a reason the lab did not
+mention; and embedding the Terraform module in the worker binary made `nsctl apply`
+depend on a rebuild step that no lab had.
+
+`pnpm snippets:check` guards what it can — that every snippet claim and grade id
+resolves — and `make verify` compiles the answers. Neither can tell whether prose
+still describes reality. That part is a human obligation, which is why it is written
+down as a rule rather than left to a linter.
+
 ---
 
 ## Specs
@@ -243,11 +316,17 @@ Your platform holds Developer because that is what production looks like — and
 notice it was enough."*
 
 Granting a user namespace access is a user-management operation requiring Global
-Admin, so the platform SA cannot do it. The alternative — an elevated
-account-admin credential inside the reconcile path — would reintroduce exactly the
-second credential the portal deliberately deleted from its `providers.tf`.
+Admin, so the platform SA cannot do it — which is why the *reconcile path* holds
+only a Developer credential, and rule 3 stays true.
 
-Students authenticate by SAML against an Okta tenant rather than an emailed invite
+**The portal is the exception, and it is deliberate.** Creating a Cloud user is an
+account-admin operation, and students now choose their own username at join time,
+so nothing can pre-provision them. The portal therefore holds an account-owner key.
+This is the second elevated credential the design previously avoided, accepted in
+exchange for the join flow, and bounded by a short key expiry rather than by scope.
+See *Identity via Authentik*.
+
+Students authenticate by SAML against an Authentik tenant rather than an emailed invite
 link — see *Identity via SAML*. The role assignments above are unchanged.
 
 ---
@@ -268,7 +347,9 @@ link — see *Identity via SAML*. The role assignments above are unchanged.
 3. **Invert to declarative.** Same activities, new driver: commit the spec, the hook
    signals, the reconciler reconciles. Change retention in the Cloud UI behind its
    back and watch the timer catch the drift. Delete an environment and watch cleanup.
-   *Graded:* Query the reconciler for a drift-corrected result.
+   *Graded:* Query the reconciler for a drift-corrected result, **and the removed
+   environment is actually gone** — that second check is what holds the namespace
+   budget at three per student, so it is mandatory rather than illustrative.
 
 4. **The paved road.** A decorated workflow declares its own queue and namespace;
    `gen-config` emits worker config; `nsctl` templates the manifest; the worker
@@ -278,9 +359,11 @@ link — see *Identity via SAML*. The role assignments above are unchanged.
    *Graded:* worker pod healthy, polling the right queue in the right namespace.
 
 5. **Be the developer.** New persona, empty directory, **stopwatch**. From nothing
-   to a completed workflow using only the platform you built. Then ten minutes on
-   why OpenAI abandoned Terraform for an operator, and what a Temporal-based control
-   loop gets right that a k8s controller cannot.
+   to a completed workflow using only the platform you built — one spec, one
+   environment (`--environments staging`), which keeps the peak at three namespaces
+   without costing the challenge anything: a new team's first ask is rarely both
+   environments. Then ten minutes on why OpenAI abandoned Terraform for an operator,
+   and what a Temporal-based control loop gets right that a k8s controller cannot.
    *Graded:* a workflow completed in the provisioned namespace within N minutes of
    the challenge starting.
 
@@ -389,41 +472,111 @@ the demo's original S3 design did. This is exactly why `AttemptImport` ports ove
 rather than being dropped: it re-adopts orphaned resources instead of duplicating
 them.
 
-### Identity via SAML
+### Identity via Authentik
 
-**No mail anywhere in this design.** Students authenticate against an **Okta
-developer tenant** configured as the account's SAML IdP. Temporal still sends an
-invitation email when the user is created; nobody ever reads it.
+**No mail anywhere in this design.** Students authenticate against a **self-hosted
+[Authentik](https://github.com/goauthentik/authentik)** tenant configured as the
+account's SAML IdP, deployed to Fly.
 
-This also dissolves the constraint that motivated a relay in the first place — one
+This dissolves the constraint that motivated a mail relay in the first place — one
 email address maps to one Temporal Cloud account permanently, so a platform
 engineer whose work address already sits in another account is un-invitable. Under
 SAML the address is a workshop-owned identifier, not their real mailbox.
 
-- **15 fixed identities**, `student-NN@<domain>`, **bound to the slot pool**. Slot 7
-  owns `ws-7-staging`, `ws-7-prod` and `student-07@<domain>`. One lease derives
-  everything, and identities are reused across cohorts rather than recreated.
-- Provisioned with `temporalcloud_user` in Terraform — pleasingly on-thesis: the
-  workshop's own attendee identities are provisioned as code.
-- **Okta is the kill switch.** The reaper deactivates the Okta user, which is
-  instant and needs no Cloud API call. Cloud user records persist between cohorts.
-- **SCIM is not needed.** Fifteen fixed identities provisioned once do not need
-  lifecycle sync, and SCIM is Enterprise-tier or a $500/month Business add-on.
-- Ask support to **disable social logins** on the account, so there is exactly one
-  login path and nobody lands on "Continue with Google".
-- Okta developer edition over Entra ID (which gates SAML for custom apps behind a
-  paid tier) and over Google Workspace (whose Temporal setup instructions are still
-  being written).
+**Confirmed:** a user created through the Ops API can complete a SAML login without
+ever opening the invitation Temporal sends. The no-mail design rests on this and it
+is no longer contingent.
+
+#### Why not Okta
+
+Okta developer edition was the original choice, on availability grounds: Entra ID
+gates SAML for custom apps behind a paid tier, and Google Workspace's Temporal
+setup instructions were unfinished. It was displaced by a limit, not a preference —
+**its user cap is lower than a cohort plus the cohorts before it**, and identities
+are reused across cohorts. Temporal Cloud's own user limit is 300 per account, so
+Temporal was never the binding constraint.
+
+The price is honest and worth stating. Okta's availability was somebody else's
+problem; Authentik's is ours, and it is a **total-outage dependency** — if it is
+down at 09:00 nobody logs into Temporal Cloud and the workshop cannot start.
+Accepted deliberately.
+
+#### The two pieces of state that cannot be rebuilt
+
+Both cost a support ticket with weeks of lead time if lost, because Temporal's SAML
+configuration is not self-service and pins the IdP's sign-in URL and certificate.
+
+| | Where it lives | Why it cannot be regenerated |
+|---|---|---|
+| SAML signing keypair | A **Fly secret**, generated outside Authentik | Temporal holds the certificate. A fresh one means a new ticket. |
+| Authentik's database | **Fly Managed Postgres**, with backups | It holds every student's registration, and nothing else can rebuild it. |
+
+Authentik generates a self-signed signing certificate on first boot, which would
+tie the SAML config to one deployment forever. Generating the keypair outside it
+and injecting it is what makes the Fly app rebuildable. **Restore from a Postgres
+backup once, before the first cohort** — an untested backup is not a backup, and
+this is the one database in the workshop with no other copy.
+
+#### Identities are created at join time, not provisioned in advance
+
+The earlier design pre-provisioned fifteen fixed `student-NN@<domain>` identities
+with `temporalcloud_user` in Terraform, each bound to a slot. That is retired along
+with slots — see *Names are recyclable* below.
+
+Instead: **a student types the username they want**, and the portal provisions it.
+One identifier, chosen by the person who has to remember it.
+
+- Validated `^[a-z][a-z0-9-]{1,14}$`. Not arbitrary: the username becomes part of a
+  namespace name, which Cloud caps at 39 characters and restricts to lowercase
+  letters, numbers and hyphens. The budget is shared with the spec name —
+  `ws-` + 14 + `-` + 12 + `-staging` is 38 — so `nsctl new` caps spec names at 12.
+  Both are validated at the point of typing, because the same rejection arriving
+  from a Terraform activity reads as a broken module.
+- **A repeat username is a return, not a conflict.** Same participant: the password
+  is reset and shown again. Different participant: rejected. Recovery and conflict
+  are one code path, which is the whole of "I closed the tab".
+- The portal assigns **Global Admin**, as the identity matrix already specifies —
+  students must see namespaces their platform's service account created, and
+  challenge 5 depends on it.
+- Registration is **refused past the cohort cap**. "The workshop is full, see the
+  instructor" at join is a conversation; running out of namespaces at 11:00 is an
+  outage that lands on whoever applies next.
+
+#### The username is the only key
+
+It replaces the Instruqt participant id everywhere the workshop identified a
+student: Vault paths (`secret/namespaces/<username>/...`), tfstate paths, the
+namespace tag the grader reads, and the namespace name itself. One identifier,
+chosen by the person who has to remember it, and legible in a Vault path in a way
+that `secret/namespaces/a3f9c2.../` never was.
+
+It reaches the sandbox the same way every other value does —
+`workshop-creds init --username <name>` — which is why it also works on a laptop
+where no participant id exists. The sandbox prints a **bare join link**; the portal
+issues the personalised, HMAC-signed one back, and that URL is the thing a student
+bookmarks and the recovery path they return through.
+
+Workshop state — which username, which cohort — is stored as **Authentik user
+attributes** through its API. No second datastore, and nothing writes Authentik's
+schema behind its back, because Authentik migrates on every upgrade.
+
+**The accepted risk.** Creating a Temporal Cloud user is an account-admin
+operation, so the portal holds an **account-owner API key** — a public web service
+with a credential that can create and grant any user. This is the second elevated
+credential the design previously went out of its way to avoid, and it is accepted
+knowingly in exchange for self-chosen usernames and a portal-driven join. Give the
+key a **short expiry** so a forgotten deployment stops being a liability on its own.
+
+#### The kill switch is deliberately two things
+
+Deactivating the Authentik user is instant and needs no Cloud call. Revoking
+Cloud-side does not depend on our own Fly app being up. **Both are kept on
+purpose** — a kill switch that shares a failure domain with the thing it switches
+off is not one — and this note exists so that neither is later deleted as
+redundant.
 
 The domain is needed only as an identifier namespace and for the IdP-domain mapping
 support asks for. **No MX, no SPF, no DKIM, no mailbox.**
-
-**This design is contingent on one unverified claim.** Temporal support has stated
-that JIT account creation is *not* supported, so users must be created before they
-can sign in — that part is fine, the control plane creates them. What is *not* yet
-confirmed is whether a created-but-never-accepted user can complete a SAML login
-without opening the invitation email. Ask before building; if acceptance turns out
-to be required, the mail relay returns. See *Risks*.
 
 ---
 
@@ -442,9 +595,15 @@ Prebuilt aggressively:
 - k3s installed, **not started**
 - The managed worker image **built and imported into k3s's image store**
 
-k3s over k3d: the Kubernetes-auth switch in challenge 4 is more honest against a
-real kubelet, and nothing is torn down repeatedly. Measure the boot rather than
-guessing — the portal's loading messages exist because that build is already slow.
+k3s over k3d **in the sandbox**: the Kubernetes-auth switch in challenge 4 is more
+honest against a real kubelet, and nothing is torn down repeatedly. Measure the
+boot rather than guessing — the portal's loading messages exist because that build
+is already slow.
+
+On a laptop the same manifests run on k3d or Docker Desktop's Kubernetes, because
+k3s does not run natively on macOS (rule 8). That is a difference in the cluster,
+not in the workshop: the manifests, the NodePort and the lab commands are
+unchanged, and only `make k3s-import` cares which one it is talking to.
 
 ---
 
@@ -452,32 +611,92 @@ guessing — the portal's loading messages exist because that build is already s
 
 | Item | Value | Note |
 |---|---|---|
-| Students | 15 | |
-| Namespaces per student | 2 | staging + prod, one region |
-| **Namespace quota to request** | **40** | Default is 10. The portal needed a support ticket two weeks ahead |
+| Students | **15** | 45 of 50 namespaces. See *The namespace budget* below |
+| Namespaces per student, peak | **3** | control + staging + prod, one region |
+| **Namespace quota** | **50** | Default is 10; documented as auto-increasing, but not something to discover on the morning |
+| Cloud user limit | 300 per account | Never the binding constraint — the IdP's cap was |
 | Cloud metrics budget | 180 req/hour **per account** | Largely moot — `metrics_endpoint` is out of scope |
-| Okta developer tenant | 1, free | 15 fixed identities, reused across cohorts |
+| Authentik tenant | 1, self-hosted on Fly | Unlimited identities; see *Identity via Authentik* |
 
-**Name recycling.** Temporal Cloud reserves namespace names after deletion, so
-names must not be derived from participant IDs — a naive scheme burns names
-permanently. Physical names are `ws-<slot>-<env>`, where `slot` is a small integer
-**leased from a pool workflow.** Slot 7 is reused by design, so
-reserved-after-deletion stops mattering.
+### The namespace budget
 
-**Reaping.** A reaper workflow — not a script — keyed to the participant ID, holding
-a TTL, accepting the same `extendMs` and `revoke` signals the portal's `invitation`
-workflow already has. Self-paced arrivals overlap unpredictably; abandoned sandboxes
-must return their slots to the pool.
+This is the tightest constraint in the workshop and every other number is derived
+from it.
+
+The control plane runs on **its own Cloud namespace per student** — that is the
+bootstrap punchline, and it costs a third of the account. Add the fan-out from
+challenge 2 and the peak is three:
+
+| | control | staging | prod / payments | total |
+|---|---|---|---|---|
+| Challenge 2 peak | 1 | 1 | 1 | **3** |
+| Challenge 5 peak | 1 | 1 | 1 | **3** |
+
+15 × 3 = **45 of 50**, five spare. That headroom is not slack, it is insurance
+against a specific failure: a student who skips challenge 3's environment removal
+and reaches challenge 5 holds **four**. Five spare absorbs five of them. Sixteen
+students would leave room for two, and the third straggler's failure lands on
+whoever applies next — not on the student who skipped, which makes it the worst
+kind of bug to debug in a room.
+
+Three mechanisms hold the peak at three, and all of them are needed:
+
+1. **Challenge 3's environment removal is graded and mandatory.** It is what
+   returns a student to two before challenge 5 adds one.
+2. **Challenge 5 provisions a single environment** — `--environments staging`. The
+   stopwatch and the "you provisioned it yourself" beat both survive; a new team's
+   first ask is rarely both environments anyway.
+3. **The reconciler pre-checks remaining quota** before an apply and fails with the
+   real cause. Without it, hitting the cap surfaces as a Cloud error inside a
+   Terraform activity, which reads as *"my module is wrong"* and sends a student
+   debugging their own HCL. A control plane that enforces a policy is on-thesis,
+   not a workaround.
+
+### Names are recyclable
+
+**A deleted Temporal Cloud namespace name can be recreated.** This is worth stating
+plainly because an earlier version of this design asserted the opposite, and built
+a slot pool on it.
+
+That reasoning was also circular. If names *were* reserved, `ws-7-orders-staging`
+would burn on deletion exactly as `ws-alice-orders-staging` would — and slots would
+be strictly worse, because a participant-derived scheme burns a fresh name per
+cohort while a slot-derived one burns a fixed small set and breaks on the second
+cohort. Slots never solved the problem they were introduced for.
+
+So **slots are retired**, along with `SlotPoolWorkflow`, `nsctl slot` and the
+reaper. Physical names are `ws-<username>-<spec>-<env>`, derived from the name the
+student chose. What the slot pool was really allocating — a scarce pre-provisioned
+identity — is gone too, now that identities are created at join time.
+
+### Reaping
+
+**There isn't any, during the workshop.** A 15-seat cohort inside a 50-namespace
+quota, with registration refused past the cap, prevents the pressure a reaper
+existed to relieve. An unattended process deleting namespaces on a TTL is how a
+student who came back from lunch loses their work.
+
+Teardown is an **instructor script**, run deliberately after each workshop, and it
+deletes namespaces, Cloud users and Authentik users. It scopes itself by a
+**`cohort` tag** written into the reconciler's tag set — `cohort=2026-03-melbourne`
+— rather than by matching the `ws-` prefix, because deletion is irreversible and
+prefix-matching has no guard. The same tag lets the instructor view report cohort
+usage against the quota, which is the number to watch when five spare is the
+margin.
 
 ### Critical path — start now
 
-1. **SAML enablement.** SSO is **not self-service**: the ticket must carry the IdP
-   sign-in URL, the X.509 certificate in PEM, and the IdP domain to map. Fold three
-   more asks into the same ticket — disable social logins, confirm the acceptance
-   question above, and the namespace quota. Plan coverage is confirmed.
-2. **Namespace quota for 40.** Weeks of lead time; same ticket.
-3. **Okta developer tenant and the domain.** Free, self-service, and the only
-   critical-path item entirely under your control.
+1. **Authentik on Fly, with an externally generated signing keypair.** Do this
+   first, because item 2 needs its sign-in URL and certificate — and because
+   regenerating either afterwards means re-filing item 2.
+2. **SAML enablement.** SSO is **not self-service**: the ticket must carry the IdP
+   sign-in URL, the X.509 certificate in PEM, and the IdP domain to map. Fold two
+   more asks into the same ticket — disable social logins, and the namespace quota.
+3. **Namespace quota for 50.** Weeks of lead time; same ticket. Documented as
+   auto-increasing, but that is not a thing to discover on the morning.
+4. **The domain.** Free, self-service, an identifier namespace only. No MX.
+5. **Restore the Authentik Postgres from a backup, once.** It holds every
+   registration and nothing else can rebuild it. An untested backup is not a backup.
 
 Everything else is code, and code can be written on a weekend.
 
@@ -497,7 +716,9 @@ Named so they read as decisions rather than gaps.
 | Scaffolding a developer's repo | Doubles the build and adds a second control loop |
 | Groups, Nexus, metrics endpoints | See *Resources provisioned* |
 | Mail relay, Postmark, Google Workspace | Replaced by SAML — no inbound mail anywhere in the design |
-| SCIM | Fifteen fixed identities provisioned once need no lifecycle sync; Enterprise-tier or a $500/month add-on |
+| SCIM | Identities are created at join and deleted at teardown; there is no lifecycle to sync |
+| A slot pool | Retired. It solved name reservation, which does not exist — see *Names are recyclable* |
+| Self-service slot selection | One slot is identical to another; choice invites a race and buys nothing. The recovery path was the real requirement |
 
 ---
 
@@ -507,15 +728,27 @@ Named so they read as decisions rather than gaps.
    in the first dry run; the fallback is splitting it across 4 and 5, which costs
    the stopwatch.
 2. **Students hold Global Admin.** Same blast radius the portal already accepts
-   (its sharp edges #4 and #6), mitigated by slot names and the reaper. A griefing
-   student can delete another's namespaces.
-3. **Single-machine state service.** Mitigated by `AttemptImport`, but a Fly deploy
+   (its sharp edges #4 and #6). A griefing student can delete another's namespaces,
+   and with slots retired there is no longer a naming convention that limits which.
+3. **The portal holds an account-owner key.** A public web service with a
+   credential that can create and grant any Cloud user. Accepted knowingly in
+   exchange for self-chosen usernames; bounded by key expiry rather than by scope,
+   which means the expiry is load-bearing and must actually be set.
+4. **Authentik is a total-outage dependency.** Down at 09:00 means nobody logs into
+   Temporal Cloud and the workshop does not start. Okta's availability was somebody
+   else's problem; this is ours.
+5. **Five namespaces of headroom.** 15 students × 3 is 45 of 50. A student who
+   skips challenge 3's removal and reaches challenge 5 holds four, and five such
+   stragglers exhausts the margin. The graded removal and the reconciler's quota
+   pre-check are what keep this theoretical. **A sixteenth attendee does not fit.**
+6. **Single-machine state service.** Mitigated by `AttemptImport`, but a Fly deploy
    mid-workshop will fail somebody's apply.
-4. **Sandbox boot time** is unmeasured and the prebuild list is long.
-5. **One unverified assumption gates the whole identity design.** Whether a
-   pre-created, never-accepted user can complete a SAML login without opening the
-   invitation email is unconfirmed. Ask first. If the answer is no, the mail relay
-   returns and Google Workspace rejoins the critical path.
-6. **Okta becomes the access control plane.** Between cohorts, 15 standing Global
-   Admin users sit in the account gated only by Okta. A misconfigured tenant is a
-   live-credential problem, not an inconvenience.
+7. **Sandbox boot time** is unmeasured and the prebuild list is long.
+8. **Authentik becomes the access control plane.** Between cohorts, standing Global
+   Admin users sit in the account gated only by Authentik — an IdP we now operate.
+   A misconfigured tenant is a live-credential problem, not an inconvenience. The
+   instructor teardown script is the mitigation, and it has to actually be run.
+
+*Resolved since the first draft:* whether a pre-created, never-accepted user can
+complete a SAML login without opening the invitation email. It can. The no-mail
+design is no longer contingent.

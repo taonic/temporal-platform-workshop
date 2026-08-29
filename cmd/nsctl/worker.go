@@ -90,7 +90,7 @@ func manifestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			participant, slot, err := identity(cmd)
+			username, _, err := identity(cmd)
 			if err != nil {
 				return err
 			}
@@ -103,15 +103,15 @@ func manifestCmd() *cobra.Command {
 
 			data := manifestData{
 				Config:       cfg,
-				PhysicalName: fmt.Sprintf("ws-%d-%s-%s", slot, cfg.Namespace, cfg.Environment),
+				PhysicalName: fmt.Sprintf("ws-%s-%s-%s", username, cfg.Namespace, cfg.Environment),
 				TaskQueues:   strings.Join(cfg.TaskQueues, ","),
 				VaultAddr:    vaultAddr,
 				VaultRole:    "worker-" + cfg.Namespace,
-				Participant:  participant,
+				Username:     username,
 			}
 			if data.Config.VaultPath == "" {
 				data.Config.VaultPath = fmt.Sprintf("namespaces/%s/%s/%s",
-					participant, cfg.Namespace, cfg.Environment)
+					username, cfg.Namespace, cfg.Environment)
 			}
 
 			rendered := new(strings.Builder)
@@ -154,7 +154,7 @@ type manifestData struct {
 	TaskQueues   string
 	VaultAddr    string
 	VaultRole    string
-	Participant  string
+	Username     string
 }
 
 // The ConfigMap is not decoration. OpenAI's operator reads generated configs

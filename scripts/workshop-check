@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Verify tools, cluster, Vault, egress and the control plane.
+#
+#   ./scripts/workshop-check
+#
+# Ported from temporal-cloud-training-portal's `workshop-check`, keeping the two
+# things that made it useful. No `set -e` and no `pipefail`: this is a diagnostic,
+# so it runs every probe rather than stopping at the first broken one. And it
+# distinguishes NOT YET from BROKEN — before challenge 1 there is no control
+# namespace and no control plane, which is the expected state, and calling that
+# FAIL sends someone hunting for a fault that does not exist.
+set -u
+
+fail=0
+ok()   { printf '  \033[32mok\033[0m    %s\n' "$1"; }
+bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; fail=1; }
+warn() { printf '  \033[33mwarn\033[0m  %s\n' "$1"; }
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+VAULT_NODEPORT="${VAULT_NODEPORT:-30820}"
+export VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:$VAULT_NODEPORT}"
+export VAULT_TOKEN="${VAULT_TOKEN:-${VAULT_DEV_ROOT_TOKEN_ID:-dev}}"
+
+echo "Tools"
+for probe in \
+    "temporal:temporal --version" \
+    "temporal cloud:temporal cloud --help" \
+    "terraform:terraform version" \
+    "go:go version" \
+    "uv:uv --version" \
+    "docker:docker info" \
+    "kubectl:kubectl version --client" \
+    "vault:vault --version" \
+    "git:git --version"
+do
+    name="${probe%%:*}"; cmd="${probe#*:}"
+    if $cmd > /dev/null 2>&1; then ok "$name"; else bad "$name"; fi
+done
+
+echo
+echo "Cluster"
+# k3s in the sandbox, k3d or Docker Desktop on a laptop -- rule 8. Any of them
+# is fine; none of them is not.
+if kubectl get nodes > /dev/null 2>&1; then
+    ok "kubernetes reachable ($(kubectl config current-context 2>/dev/null))"
+    if kubectl get namespace platform > /dev/null 2>&1; then
+        ok "namespace/platform"
+    else
+        warn "namespace/platform absent -- run: make base-up"
+    fi
+    if kubectl -n platform get deploy vault > /dev/null 2>&1; then
+        ready=$(kubectl -n platform get deploy vault -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+        [ "${ready:-0}" -ge 1 ] 2>/dev/null && ok "deploy/vault ready" || bad "deploy/vault not ready"
+    else
+        warn "deploy/vault absent -- run: make base-up"
+    fi
+    if kubectl -n platform get deploy platform-worker > /dev/null 2>&1; then
+        ready=$(kubectl -n platform get deploy platform-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+        [ "${ready:-0}" -ge 1 ] 2>/dev/null \
+            && ok "deploy/platform-worker ready" \
+            || bad "deploy/platform-worker not ready -- kubectl -n platform logs deploy/platform-worker"
+    else
+        warn "deploy/platform-worker absent -- challenge 1 step 4 creates it"
+    fi
+else
+    bad "no reachable cluster"
+    echo "        Linux:  sudo systemctl start k3s"
+    echo "        macOS:  k3d cluster create platform -p \"30820:30820@server:0\""
+fi
+
+echo
+echo "Vault"
+# NodePort routing is not universal, so a refused connection here is usually a
+# dead port-forward rather than a dead Vault.
+if curl -fsS -m 3 -o /dev/null "$VAULT_ADDR/v1/sys/health?standbyok=true" 2>/dev/null; then
+    ok "reachable at $VAULT_ADDR"
+    if vault kv get -field=api_key secret/platform/cloud-api-key > /dev/null 2>&1; then
+        ok "platform cloud api key present"
+    else
+        bad "no key at secret/platform/cloud-api-key -- TEMPORAL_CLOUD_API_KEY=<key> make base-up"
+    fi
+else
+    bad "not reachable at $VAULT_ADDR -- try: make vault-forward"
+fi
+
+echo
+echo "Outbound network"
+# The address the control plane dials is regional; the namespace-specific one
+# does not exist until challenge 1 has run.
+probe_net() {
+    if nc -z -w 5 "${1%%:*}" "${1##*:}" 2>/dev/null; then ok "$1"; else bad "$1"; fi
+}
+probe_net us-west-2.aws.api.temporal.io:7233
+probe_net saas-api.tmprl.cloud:443
+probe_net registry.terraform.io:443
+probe_net github.com:443
+[ -n "${STATE_SERVICE_URL:-}" ] && {
+    curl -fsS -m 5 -o /dev/null "$STATE_SERVICE_URL/healthz" 2>/dev/null \
+        && ok "state service $STATE_SERVICE_URL" \
+        || bad "state service $STATE_SERVICE_URL/healthz"
+}
+
+echo
+echo "Control plane"
+if [ -z "${CONTROL_NAMESPACE:-}" ]; then
+    warn "CONTROL_NAMESPACE unset -- challenge 1 sets it (workshop-creds control)"
+else
+    key="$("$HERE/workshop-creds" exec -- sh -c 'printf %s "$TEMPORAL_API_KEY"' 2>/dev/null </dev/null)"
+    if [ -z "$key" ]; then
+        warn "no key to check $CONTROL_NAMESPACE with -- see Vault above"
+    elif temporal cloud namespace list --api-key "$key" 2>/dev/null \
+         | grep -q -- "${CONTROL_NAMESPACE%%.*}"; then
+        ok "$CONTROL_NAMESPACE exists"
+        if temporal workflow list --limit 1 --namespace "$CONTROL_NAMESPACE" \
+             --address "${TEMPORAL_ADDRESS:-us-west-2.aws.api.temporal.io:7233}" \
+             --api-key "$key" > /dev/null 2>&1; then
+            ok "reachable at ${TEMPORAL_ADDRESS:-us-west-2.aws.api.temporal.io:7233}"
+        else
+            bad "cannot reach it -- wrong address, or API key auth not enabled on the namespace"
+        fi
+    else
+        warn "$CONTROL_NAMESPACE does not exist yet -- challenge 1's terraform apply creates it"
+    fi
+fi
+
+echo
+if [ "$fail" -eq 0 ]; then
+    echo "All good."
+else
+    echo "Something above needs fixing."
+    exit 1
+fi

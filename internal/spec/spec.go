@@ -58,10 +58,30 @@ type Spec struct {
 	StateBackend  string   `yaml:"stateBackend"`
 }
 
-// nameRe caps the logical name at 12 characters so that the physical name it
-// derives -- ws-<slot>-<name>-<env> -- stays comfortably inside Temporal Cloud's
-// namespace name limit.
+// Cloud caps a namespace name at 39 characters, lower-case letters, digits and
+// hyphens. The physical name is ws-<username>-<spec>-staging, so the two
+// user-supplied parts share one budget:
+//
+//	len("ws-") + username + len("-") + spec + len("-staging")
+//	  3        +    14    +    1    +  12  +      8          = 38
+//
+// Hence 14 and 12. Both are validated where they are typed -- the same rejection
+// arriving from inside a Terraform activity reads as a broken module.
 var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,11}$`)
+
+// UsernameRe is the student's chosen name. It is an identifier, not a display
+// name: it becomes part of a namespace name, a Vault path and a tag value.
+var UsernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,13}$`)
+
+// ValidateUsername is exported because the portal validates at the join screen and
+// nsctl validates at the shell. One rule, two callers, no drift.
+func ValidateUsername(u string) error {
+	if !UsernameRe.MatchString(u) {
+		return fmt.Errorf(
+			"username %q must be 2-14 characters, lower-case letters, digits and dashes, starting with a letter", u)
+	}
+	return nil
+}
 
 var validEnvs = map[string]bool{EnvStaging: true, EnvProd: true}
 var validTiers = map[string]bool{TierStandard: true, TierCritical: true}
@@ -113,11 +133,13 @@ func (s *Spec) Validate() error {
 
 // PhysicalName is the namespace name for one environment of this spec.
 //
-// The slot is the reason names are recyclable. Temporal Cloud reserves a
-// namespace name after deletion, so a name derived from a participant id burns
-// that name permanently. Slot 7 is reused by design.
-func (s *Spec) PhysicalName(slot int, env string) string {
-	return fmt.Sprintf("ws-%d-%s-%s", slot, s.Name, env)
+// Derived from the username the student chose. An earlier design used a leased
+// integer slot instead, on the belief that Temporal Cloud reserves a namespace
+// name after deletion -- it does not, and the reasoning was circular anyway: a
+// reserved ws-7-orders-staging burns exactly as ws-alice-orders-staging would,
+// and a small fixed set of slots burns out faster than per-person names do.
+func (s *Spec) PhysicalName(username, env string) string {
+	return fmt.Sprintf("ws-%s-%s-%s", username, s.Name, env)
 }
 
 // Tags are the complete tag set for a namespace. temporalcloud_namespace_tags

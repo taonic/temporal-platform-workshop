@@ -38,7 +38,9 @@ virtualmachines:
 
       # Dev-mode Vault for challenges 1 to 3. Challenge 4 switches the worker to
       # Kubernetes auth, which is the point of that challenge.
-      VAULT_ADDR: http://127.0.0.1:8200
+      # Vault is a pod on k3s here, reachable through the NodePort in
+      # deploy/platform/vault.yaml. Nothing listens on 8200 on the host.
+      VAULT_ADDR: http://127.0.0.1:30820
       VAULT_DEV_ROOT_TOKEN_ID: workshop-root
 
       # 0 downgrades the closing egress probes to warnings -- use it when the

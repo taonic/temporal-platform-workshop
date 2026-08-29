@@ -25,7 +25,6 @@ func syncCmd() *cobra.Command {
 	var (
 		dir      string
 		driftSec int
-		ttlSec   int
 	)
 
 	c := &cobra.Command{
@@ -40,7 +39,7 @@ func syncCmd() *cobra.Command {
 				fmt.Printf("no specs in %s/ -- try `nsctl new`\n", dir)
 				return nil
 			}
-			participant, slot, err := identity(cmd)
+			username, cohort, err := identity(cmd)
 			if err != nil {
 				return err
 			}
@@ -54,28 +53,11 @@ func syncCmd() *cobra.Command {
 			ctx, cancel := withTimeout(2 * time.Minute)
 			defer cancel()
 
-			// The reaper first, so a namespace registering itself has something to
-			// register with. Its own id is per participant, so this is idempotent.
-			if _, err := cl.SignalWithStartWorkflow(ctx,
-				platform.ReaperWorkflowID(participant), platform.SignalRegister,
-				platform.ReaperRegistration{},
-				client.StartWorkflowOptions{
-					ID:        platform.ReaperWorkflowID(participant),
-					TaskQueue: platform.TaskQueue,
-				},
-				platform.ReaperWorkflow, platform.ReaperInput{
-					Participant: participant,
-					Slot:        slot,
-					TTLSeconds:  ttlSec,
-				}); err != nil {
-				fmt.Printf("warning: could not start the reaper: %v\n", err)
-			}
-
 			for _, s := range specs {
 				in := platform.ReconcileInput{
 					Spec:                 *s,
-					Slot:                 slot,
-					Participant:          participant,
+					Username:             username,
+					Cohort:               cohort,
 					RunID:                envOr("WORKSHOP_RUN_ID", "local"),
 					DriftIntervalSeconds: driftSec,
 				}
@@ -101,7 +83,6 @@ func syncCmd() *cobra.Command {
 
 	c.Flags().StringVar(&dir, "dir", defaultSpecDir, "directory of specs")
 	c.Flags().IntVar(&driftSec, "drift-interval", 120, "seconds between drift checks")
-	c.Flags().IntVar(&ttlSec, "ttl", 8*3600, "seconds before the reaper collects this participant's slot")
 	addIdentityFlags(c)
 	return c
 }

@@ -13,7 +13,7 @@ export const lab2: LabDef = {
     'One spec, two namespaces. The parent workflow already fans out one child per environment and ' +
     'collects the results. The child is missing.',
 
-  steps: () => [
+  steps: ({ username }) => [
     {
       label: 'Read the workflow id before you write anything',
       command: 'code internal/platform/environment.go',
@@ -37,6 +37,15 @@ export const lab2: LabDef = {
         'TestProvisionWorkflowReportsPartialFailure asserts one broken environment does not fail the other.',
     },
     {
+      label: 'Ship it to the control plane',
+      command: 'make reload',
+      expect:
+        'The Go you just wrote is compiled into the worker image, and the running Deployment still has ' +
+        'the stub. make reload rebuilds, reimports and rolls it -- about forty seconds. Skip it and ' +
+        'the apply below fails with the stub\'s own non-retryable error, which is at least honest ' +
+        'about what happened.',
+    },
+    {
       label: 'Provision both environments',
       command: 'nsctl apply -f specs/<name>.yaml',
       expect: 'Two namespaces, two service accounts, two credentials in Vault.',
@@ -45,8 +54,8 @@ export const lab2: LabDef = {
     {
       label: 'Ask the state service for a lock',
       command:
-        'curl -s -X LOCK -u "$WORKSHOP_PARTICIPANT:$STATE_TOKEN" \\\n' +
-        '  "$STATE_SERVICE_URL/state/$WORKSHOP_PARTICIPANT/<name>/staging"',
+        `curl -s -X LOCK -u "${username}:$STATE_TOKEN" \\\n` +
+        `  "$STATE_SERVICE_URL/state/${username}/<name>/staging"`,
       expect: '405, and an explanation of why locking would protect against something that cannot happen.',
     },
     {

@@ -16,7 +16,7 @@ FOUND=""
 for SPEC in specs/*.yaml; do
   case "$SPEC" in *_example*) continue;; esac
   NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
-  NS="ws-${WORKSHOP_SLOT}-${NAME}-staging"
+  NS="ws-${WORKSHOP_USERNAME}-${NAME}-staging"
 
   COUNT=$(temporal workflow list --namespace "$NS" \
             --query "ExecutionStatus = 'Completed'" -o json 2>/dev/null \

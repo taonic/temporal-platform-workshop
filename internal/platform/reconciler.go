@@ -39,7 +39,7 @@ const historyLimit = 8000
 func NamespaceWorkflow(ctx workflow.Context, in ReconcileInput) error {
 	log := workflow.GetLogger(ctx)
 
-	status := Status{Spec: in.Spec, Slot: in.Slot, Generation: 1}
+	status := Status{Spec: in.Spec, Username: in.Username, Generation: 1}
 	applied := map[string]EnvStatus{}
 
 	if err := workflow.SetQueryHandler(ctx, QueryStatus, func() (Status, error) {
@@ -67,10 +67,6 @@ func NamespaceWorkflow(ctx workflow.Context, in ReconcileInput) error {
 		// what is.
 		pruneRemovedEnvironments(ctx, desired, applied)
 	}
-
-	// Tell the reaper this namespace exists, so an abandoned sandbox does not hold
-	// its slot forever. Best effort: no reaper running means a local dev run.
-	notifyReaper(ctx, desired)
 
 	reconcile()
 

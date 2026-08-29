@@ -29,8 +29,7 @@ function outDir(): string {
  * the Python golden-fixture test fails against the emitted greeting.py.
  */
 const ctx: SnippetContext = {
-  participant: 'ci',
-  slot: 7,
+  username: 'example',
   spec: undefined, // lab 4 falls back to `orders`
   accountId: 'acct1',
   namespacePattern: 'ws-7-orders-<environment>',

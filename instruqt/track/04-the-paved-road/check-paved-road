@@ -32,7 +32,7 @@ $K get deploy orders-staging-worker -o json | jq -e '
 # It is polling, and the poller is real: ask Temporal, not the pod.
 SPEC=$(ls specs/*.yaml | grep -v _example | head -1)
 NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
-NS="ws-${WORKSHOP_SLOT}-${NAME}-staging"
+NS="ws-${WORKSHOP_USERNAME}-${NAME}-staging"
 POLLERS=$(temporal task-queue describe --task-queue "${QUEUES%%,*}" --namespace "$NS" -o json 2>/dev/null \
   | jq -r '[.pollers[]?] | length')
 [ "${POLLERS:-0}" -ge 1 ] \

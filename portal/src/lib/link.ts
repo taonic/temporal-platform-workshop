@@ -53,13 +53,14 @@ export function verifyCode(candidate: string | null | undefined): boolean {
   return timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
-/** The query string a student's link carries. */
-export function labQuery(participant: string, token: string, slot: number | string): string {
-  const p = new URLSearchParams({
-    k: currentCode(),
-    p: participant,
-    t: token,
-    slot: String(slot),
-  });
+/**
+ * The query string a student's personalised link carries.
+ *
+ * `u` rather than `p`: the identifier is the username the student chose, not an
+ * Instruqt participant id. The lab page still accepts `p` so that links printed by
+ * an older sandbox keep working for the length of one cohort.
+ */
+export function labQuery(username: string, token: string): string {
+  const p = new URLSearchParams({ k: currentCode(), u: username, t: token });
   return `?${p.toString()}`;
 }

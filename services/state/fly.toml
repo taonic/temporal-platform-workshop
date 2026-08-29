@@ -1,43 +1,38 @@
-# Terraform state for the workshop. One machine, one volume.
+# fly.toml app configuration file generated for temporal-workshop-tfstate on 2026-08-28T23:06:08+10:00
 #
-# One machine is a real limitation and it is worth naming: a deploy mid-workshop
-# will fail somebody's state write. That is survivable only because the reconciler
-# imports before it applies -- see tfworkspace.ApplyInput.AttemptImport -- which
-# re-adopts resources whose state never landed.
-app = "temporal-workshop-tfstate"
-primary_region = "syd"
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'temporal-workshop-tfstate'
+primary_region = 'syd'
 
 [build]
-  # Relative to the build context, which is the repo root -- the Dockerfile needs
-  # go.mod and go.sum, and those live there. So deploy from the root:
-  #
-  #   fly deploy -c services/state/fly.toml
-  #
-  # Deploying from inside this directory fails on a missing go.sum.
-  dockerfile = "services/state/Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  STATE_DIR = "/data"
-  PORT = "8080"
+  PORT = '8080'
+  STATE_DIR = '/data'
 
 [[mounts]]
-  source = "tfstate"
-  destination = "/data"
+  source = 'tfstate'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  # Never scale this to zero and never run two. Two machines means two volumes
-  # means two different answers to "what is the current state".
-  auto_stop_machines = false
+  auto_stop_machines = 'off'
   auto_start_machines = false
   min_machines_running = 1
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
-    method = "GET"
-    path = "/healthz"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/healthz'
 
-# Set the secret once:  fly secrets set STATE_SHARED_SECRET=$(openssl rand -hex 32)
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024

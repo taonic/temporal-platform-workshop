@@ -8,7 +8,7 @@ SPEC=$(ls specs/*.yaml 2>/dev/null | grep -v '_example' | head -1)
 NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
 
 for ENV in staging prod; do
-  NS="ws-${WORKSHOP_SLOT}-${NAME}-${ENV}"
+  NS="ws-${WORKSHOP_USERNAME}-${NAME}-${ENV}"
   temporal cloud namespace get --name "$NS" -o json >/dev/null 2>&1 \
     || fail "Namespace $NS does not exist. One spec should fan out to both environments."
 
@@ -21,8 +21,8 @@ for ENV in staging prod; do
     || fail "${NS}-worker is not namespace-scoped. A worker needs no account-level access."
 
   # The credential must exist in Vault, because that is where the platform put it.
-  vault kv get -field=api_key "secret/namespaces/${WORKSHOP_PARTICIPANT}/${NAME}/${ENV}" >/dev/null 2>&1 \
-    || fail "No credential in Vault at namespaces/${WORKSHOP_PARTICIPANT}/${NAME}/${ENV}."
+  vault kv get -field=api_key "secret/namespaces/${WORKSHOP_USERNAME}/${NAME}/${ENV}" >/dev/null 2>&1 \
+    || fail "No credential in Vault at namespaces/${WORKSHOP_USERNAME}/${NAME}/${ENV}."
 done
 
 echo "ok: two namespaces, two namespace-scoped identities, two credentials in Vault"

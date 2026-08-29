@@ -118,6 +118,49 @@ async function paginate<T>(
   return out;
 }
 
+/**
+ * Create a Temporal Cloud user so a SAML login can succeed.
+ *
+ * Temporal does not create accounts just-in-time, so a user must exist before
+ * first sign-in. Students choose their own username at join time, which is why
+ * nothing can pre-provision these in Terraform — and why the portal holds an
+ * account-owner key. That is the second elevated credential this design otherwise
+ * avoids, accepted knowingly; see DESIGN.md, *Open risks*.
+ *
+ * Global Admin, per the identity matrix: a student must be able to see namespaces
+ * their platform's service account created, and challenge 5 depends on it.
+ *
+ * Idempotent by treating "already exists" as success — a returning student runs
+ * through this path again and should not see an error for having been here.
+ */
+export async function createCloudUser(email: string): Promise<void> {
+  const cfg = config();
+  if (!cfg.TEMPORAL_CLOUD_API_KEY) {
+    throw new CloudError('TEMPORAL_CLOUD_API_KEY is not set, so the portal cannot create the Cloud user.');
+  }
+  const res = await fetch(cfg.PORTAL_CLOUD_API_BASE + '/cloud/users', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${cfg.TEMPORAL_CLOUD_API_KEY}`,
+      'temporal-cloud-api-version': cfg.PORTAL_CLOUD_API_VERSION,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ spec: { email, access: { accountAccess: { role: 'admin' } } } }),
+  });
+  if (res.ok) return;
+
+  const body = await res.text().catch(() => '');
+  if (res.status === 409 || /already exists/i.test(body)) return;
+  throw new CloudError(
+    `Cloud Ops API ${res.status} creating user ${email}: ${body.slice(0, 200) || res.statusText}` +
+      (res.status === 401 || res.status === 403
+        ? "\n\nCreating a user is an account-admin operation. The portal's key may be scoped too narrowly, or expired."
+        : ''),
+  );
+}
+
 export async function listNamespaces(): Promise<CloudNamespace[]> {
   return paginate('/cloud/namespaces', NamespacesPage, (p: { namespaces: CloudNamespace[] }) => p.namespaces);
 }

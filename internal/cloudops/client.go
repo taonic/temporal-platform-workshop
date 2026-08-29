@@ -108,6 +108,30 @@ type NamespaceState struct {
 	State         string
 }
 
+// CountNamespaces returns how many namespaces exist in the account.
+//
+// The workshop runs against a fixed quota with only a few spare, so an apply that
+// would exceed it has to fail with the real cause. Without this the Cloud's own
+// error arrives from inside a Terraform activity, where it reads as "my module is
+// wrong" and sends a student debugging their own HCL.
+func (c *Client) CountNamespaces(ctx context.Context) (int, error) {
+	var total int
+	var page string
+	for {
+		resp, err := c.c.CloudService().GetNamespaces(ctx, &cloudservice.GetNamespacesRequest{
+			PageToken: page,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("listing namespaces: %w", err)
+		}
+		total += len(resp.GetNamespaces())
+		page = resp.GetNextPageToken()
+		if page == "" {
+			return total, nil
+		}
+	}
+}
+
 func (c *Client) DescribeNamespace(ctx context.Context, namespace string) (NamespaceState, error) {
 	resp, err := c.c.CloudService().GetNamespace(ctx, &cloudservice.GetNamespaceRequest{
 		Namespace: namespace,

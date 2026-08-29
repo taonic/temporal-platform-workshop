@@ -62,8 +62,9 @@ export function Cohort({ token }: { token: string }) {
           <table>
             <thead>
               <tr>
-                <th>Slot</th>
-                <th>Participant</th>
+                <th>Student</th>
+                <th>Cohort</th>
+                <th>Namespaces</th>
                 <th>Specs</th>
                 <th>Environments</th>
                 <th>Drift corrected</th>
@@ -82,9 +83,10 @@ export function Cohort({ token }: { token: string }) {
                     ? '2'
                     : '1';
                 return (
-                  <tr key={r.slot}>
-                    <td className="num">{r.slot}</td>
-                    <td>{r.participant ?? <span style={{ color: 'var(--muted)' }}>untagged</span>}</td>
+                  <tr key={r.username}>
+                    <td>{r.username}</td>
+                    <td>{r.cohort ?? <span style={{ color: 'var(--muted)' }}>untagged</span>}</td>
+                    <td className="num">{r.namespaces}</td>
                     <td>{r.specs.join(', ')}</td>
                     <td>{r.environments.join(', ')}</td>
                     <td>{r.driftCorrected ? 'yes' : '—'}</td>

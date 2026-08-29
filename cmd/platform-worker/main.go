@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"log"
 	"os"
+	"strings"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -33,11 +34,16 @@ func main() {
 
 	cfg := platform.ConfigFromEnv()
 
-	if _, err := vault.ReadString(ctx, cfg.VaultCloudKeyPath, cfg.VaultCloudKeyField); err != nil {
+	// The same key twice over: the Ops API uses it to provision, and the worker
+	// uses it to authenticate to the control-plane namespace. Reading it here
+	// rather than taking TEMPORAL_API_KEY from the environment is what keeps the
+	// credential out of the Deployment manifest -- see deploy/platform.
+	cloudKey, err := vault.ReadString(ctx, cfg.VaultCloudKeyPath, cfg.VaultCloudKeyField)
+	if err != nil {
 		log.Fatalf("cannot read the platform cloud api key at %s: %v", cfg.VaultCloudKeyPath, err)
 	}
 
-	c, err := dial()
+	c, err := dial(cloudKey)
 	if err != nil {
 		log.Fatalf("temporal: %v", err)
 	}
@@ -58,16 +64,33 @@ func main() {
 	}
 }
 
-func dial() (client.Client, error) {
+// dial connects to whichever Temporal the control plane runs on: a dev server
+// when TEMPORAL_ADDRESS is unset, a Cloud namespace when it is.
+//
+// vaultKey is the fallback, not the default. An explicit TEMPORAL_API_KEY still
+// wins, because local runs and tests need a way in that does not involve Vault.
+func dial(vaultKey string) (client.Client, error) {
 	opts := client.Options{
 		HostPort:  envOr("TEMPORAL_ADDRESS", client.DefaultHostPort),
 		Namespace: envOr("TEMPORAL_NAMESPACE", "default"),
 	}
-	if key := os.Getenv("TEMPORAL_API_KEY"); key != "" {
+	// A dev server accepts no credentials at all, so the address decides whether
+	// the Vault key is offered. An explicit TEMPORAL_API_KEY is always honoured:
+	// if someone set it, they meant it.
+	key := os.Getenv("TEMPORAL_API_KEY")
+	if key == "" && isCloud(opts.HostPort) {
+		key = vaultKey
+	}
+	if key != "" {
 		opts.Credentials = client.NewAPIKeyStaticCredentials(key)
 		opts.ConnectionOptions.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	return client.Dial(opts)
+}
+
+func isCloud(hostPort string) bool {
+	return strings.Contains(hostPort, "tmprl.cloud") ||
+		strings.Contains(hostPort, "api.temporal.io")
 }
 
 func envOr(k, def string) string {

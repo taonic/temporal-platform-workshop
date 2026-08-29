@@ -10,8 +10,9 @@ import type { SnippetLang } from '@/course/types';
  * limitation. It runs in a server component and emits HTML, so nothing ships to
  * the browser: no client bundle cost and no runtime dependency in the page.
  *
- * Dual themes via CSS variables, so the code follows the viewer's colour scheme
- * the same way the rest of the page does. See `.shiki` in globals.css.
+ * One theme, via CSS variables: the page is dark only -- the brand indigo is
+ * built for near-black surfaces -- so a light grammar would never be shown.
+ * See `.shiki` in globals.css.
  */
 
 const LANGS: SnippetLang[] = ['hcl', 'go', 'python', 'yaml', 'bash'];
@@ -22,7 +23,7 @@ function highlighter(): Promise<Highlighter> {
   // One instance per process. Loading five grammars per request would make every
   // lab page pay for it.
   highlighterPromise ??= createHighlighter({
-    themes: ['github-light', 'github-dark'],
+    themes: ['github-dark'],
     langs: LANGS,
   });
   return highlighterPromise;
@@ -38,9 +39,9 @@ export async function highlight(code: string, lang: SnippetLang): Promise<string
   const hl = await highlighter();
   const html = hl.codeToHtml(code, {
     lang,
-    themes: { light: 'github-light', dark: 'github-dark' },
-    // No baked-in colour: the spans carry --shiki-light / --shiki-dark and CSS
-    // decides, so one render serves both themes.
+    themes: { dark: 'github-dark' },
+    // No baked-in colour: the spans carry --shiki-dark and CSS applies it, which
+    // keeps the block on our own surface rather than the theme's background.
     defaultColor: false,
   });
 

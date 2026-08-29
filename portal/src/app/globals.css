@@ -1,60 +1,72 @@
-/* Tokens. Light is the base; dark redefines only the values, so nothing is
-   defined solely inside a media query. */
-:root {
-  --ink: #10141c;
-  --paper: #f6f8fa;
-  --surface: #ffffff;
-  --surface-2: #eef2f5;
-  --rule: #d3dbe2;
-  --rule-strong: #b4c0cb;
-  --muted: #5a6779;
-  --accent: #0d6f7a;
-  --accent-ink: #075158;
-  --accent-soft: #e0f0f2;
-  --pass: #0f7a52;
-  --pass-soft: #e2f3ea;
-  --fail: #a3352b;
-  --fail-soft: #fbeae8;
-  --warn: #8f5a0b;
-  --warn-soft: #faf0dd;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
+/* Palette lifted from temporal.io's own design tokens, the same set the Cloud
+   training portal uses, so the two workshops read as one family.
+   ---------------------------------------------------------------------------
+   Dark only. The brand indigo is built for near-black surfaces, and a light
+   variant of it either loses the indigo or fails contrast on the greys; running
+   one scheme properly beats running two badly.
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e7edf3;
-    --paper: #0b0f13;
-    --surface: #131a21;
-    --surface-2: #1a232c;
-    --rule: #25313b;
-    --rule-strong: #394855;
-    --muted: #8d9caa;
-    --accent: #43c6d1;
-    --accent-ink: #7fdce4;
-    --accent-soft: #102a2e;
-    --pass: #4cc38a;
-    --pass-soft: #10251c;
-    --fail: #e5735f;
-    --fail-soft: #2a1512;
-    --warn: #d69c4f;
-    --warn-soft: #251b0d;
-  }
+   Values marked DERIVED are not Temporal's: their text-secondary and subtle are
+   tuned for light surfaces and are unreadable on #141414, so the mid greys are
+   interpolated for a dark background. */
+:root {
+  color-scheme: dark;
+
+  --brand: #444ce7;        /* surface-brand / text-brand */
+  --brand-soft: #9aa0f5;   /* DERIVED: brand tint legible as text on dark */
+  --brand-dim: #1a1c4c;    /* surface-information */
+
+  --ink: #f8fafc;          /* text-primary */
+  --body: #c7d2e4;         /* DERIVED */
+  --muted: #8fa3c0;        /* DERIVED */
+  --faint: #667ca1;        /* interactive-secondary-surface */
+
+  --paper: #141414;        /* surface-background */
+  --surface: #1b1b1b;      /* DERIVED: card fill above the page */
+  --surface-2: #0d0d0d;    /* DERIVED: inset, for code */
+  --surface-table: #243349;
+
+  --rule: rgba(55, 71, 97, 0.5);   /* border-subtle at half */
+  --rule-strong: #465a78;          /* border-secondary */
+
+  --accent: var(--brand);
+  --accent-ink: var(--brand-soft);
+  --accent-soft: var(--brand-dim);
+
+  --pass: #00e175;         /* text-success */
+  --pass-soft: rgba(0, 143, 83, 0.16);
+  --fail: #ff643c;         /* text-danger */
+  --fail-soft: rgba(199, 29, 0, 0.16);
+  --warn: #fec118;         /* text-warning */
+  --warn-soft: rgba(253, 113, 10, 0.13);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* Aeonik is Temporal's licensed brand face: named first so it is used where
+     installed, and falls through everywhere else. No font file is bundled. */
+  --sans: Aeonik, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          ui-sans-serif, system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  background-color: var(--paper);
+  color: var(--body);
+  /* Temporal's marketing surfaces sit near-black with the brand indigo bleeding
+     in from the edges rather than a saturated gradient behind the content. */
+  background-image:
+    radial-gradient(48rem 30rem at 12% -12%, rgba(68, 76, 231, 0.22), transparent 70%),
+    radial-gradient(36rem 24rem at 92% -6%, rgba(68, 76, 231, 0.1), transparent 70%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   font-family: var(--sans);
   font-size: 15.5px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: var(--accent-ink); text-underline-offset: 2px; }
+a { color: var(--brand-soft); text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--brand-soft) 40%, transparent); }
+a:hover { text-decoration-color: var(--brand-soft); }
 a:focus-visible, button:focus-visible, input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -64,7 +76,8 @@ a:focus-visible, button:focus-visible, input:focus-visible {
 code {
   font-family: var(--mono);
   font-size: 0.86em;
-  background: var(--surface-2);
+  color: var(--brand-soft);
+  background: color-mix(in srgb, var(--surface-table) 50%, transparent);
   padding: 0.1em 0.34em;
   border-radius: 3px;
 }
@@ -72,9 +85,9 @@ code {
 .wrap { max-width: 54rem; margin: 0 auto; padding: 0 1.5rem 5rem; }
 .wide { max-width: 72rem; }
 
-h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.1; letter-spacing: -0.02em; margin: 0; }
-h2 { font-size: 1.22rem; line-height: 1.25; letter-spacing: -0.012em; margin: 0; }
-h3 { font-size: 1rem; margin: 0; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.1; letter-spacing: -0.02em; margin: 0; color: var(--ink); }
+h2 { font-size: 1.05rem; font-weight: 600; line-height: 1.3; letter-spacing: -0.008em; margin: 0; color: var(--ink); }
+h3 { font-size: 0.95rem; font-weight: 600; margin: 0; color: var(--ink); }
 p { margin: 0; }
 
 .eyebrow {
@@ -93,14 +106,15 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
 .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 
 .card {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
   border: 1px solid var(--rule);
-  border-radius: 8px;
-  padding: 1.25rem 1.4rem;
+  border-radius: 12px;
+  padding: 1.5rem;
+  backdrop-filter: blur(4px);
 }
 
 .chip {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -108,7 +122,7 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
   border: 1px solid var(--rule);
   border-radius: 100px;
   padding: 0.25rem 0.65rem;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface-table) 40%, transparent);
 }
 
 .code {
@@ -128,7 +142,19 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
 .steps { display: flex; flex-direction: column; gap: 0; }
 .step { display: grid; grid-template-columns: 1.9rem 1fr; gap: 0.9rem; padding: 1.1rem 0; border-top: 1px solid var(--rule); }
 .step:first-child { border-top: 1px solid var(--rule-strong); }
-.step-n { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); }
+.step-n {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.35rem;
+  width: 1.35rem;
+  margin-top: 0.15rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 100px;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
 .step-body { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
 .expect { font-size: 0.9rem; color: var(--muted); }
 
@@ -231,10 +257,7 @@ input {
   line-height: 1.6;
   background: var(--surface-2) !important;
 }
-.shiki, .shiki span { color: var(--shiki-light); }
-@media (prefers-color-scheme: dark) {
-  .shiki, .shiki span { color: var(--shiki-dark); }
-}
+.shiki, .shiki span { color: var(--shiki-dark); }
 
 /* In-step snippets sit inside a step body, which is already indented and
    narrower. Lighter chrome so the step, not the block, still reads as the unit. */
@@ -242,3 +265,5 @@ input {
 .snippet-instep > summary { padding: 0.55rem 0.8rem; font-size: 0.86rem; }
 .snippet-instep .snippet-body { padding: 0.75rem 0.8rem 0.85rem; }
 .snippet-instep .shiki { background: var(--surface) !important; }
+
+::selection { background: rgba(68, 76, 231, 0.35); }

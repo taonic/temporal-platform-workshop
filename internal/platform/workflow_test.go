@@ -20,8 +20,8 @@ func testInput() ReconcileInput {
 			Environments: []string{spec.EnvStaging, spec.EnvProd},
 			StateBackend: spec.BackendLocal,
 		},
-		Slot:                 7,
-		Participant:          "p-test",
+		Username:             "tester",
+		Cohort:               "test-cohort",
 		RunID:                "run-test",
 		DriftIntervalSeconds: 60,
 	}
@@ -230,51 +230,6 @@ func TestReconcilerDestroysAnEnvironmentRemovedFromTheSpec(t *testing.T) {
 }
 
 // The slot pool is why namespace names are recyclable.
-func TestSlotPoolLeasesAreIdempotentAndBounded(t *testing.T) {
-	var s testsuite.WorkflowTestSuite
-	env := s.NewTestWorkflowEnvironment()
-
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(UpdateLease, "u1",
-			&testsuite.TestUpdateCallback{
-				OnAccept: func() {},
-				OnReject: func(err error) { require.NoError(t, err) },
-				OnComplete: func(result any, err error) {
-					require.NoError(t, err)
-				},
-			}, LeaseRequest{Participant: "alice"})
-	}, time.Second)
-
-	env.RegisterDelayedCallback(func() {
-		// Same participant, same slot: sandbox setup retries, and a changed slot
-		// would rename every one of their namespaces.
-		env.UpdateWorkflow(UpdateLease, "u2",
-			&testsuite.TestUpdateCallback{
-				OnAccept: func() {},
-				OnReject: func(err error) { require.NoError(t, err) },
-				OnComplete: func(result any, err error) {
-					require.NoError(t, err)
-				},
-			}, LeaseRequest{Participant: "alice"})
-	}, 2*time.Second)
-
-	env.RegisterDelayedCallback(func() {
-		enc, err := env.QueryWorkflow(QueryPool)
-		require.NoError(t, err)
-		var st PoolStatus
-		require.NoError(t, enc.Get(&st))
-		require.Equal(t, 1, len(st.Leases), "two leases for one participant must produce one slot")
-		require.Equal(t, 1, st.Leases["alice"])
-		env.CancelWorkflow()
-	}, 3*time.Second)
-
-	env.ExecuteWorkflow(SlotPoolWorkflow, SlotPoolInput{Capacity: 2})
-	require.True(t, env.IsWorkflowCompleted())
-	// The pool is a singleton that only ends when cancelled, which is how the
-	// test stops it.
-	require.NoError(t, env.GetWorkflowError())
-}
-
 type nonRetryable struct{ msg string }
 
 func (e nonRetryable) Error() string { return e.msg }

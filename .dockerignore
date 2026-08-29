@@ -8,9 +8,12 @@ _solutions/
 _stubs/
 instruqt/
 worker/.venv/
+**/node_modules/
+portal/.next/
 worker/.pytest_cache/
 **/__pycache__/
 **/.terraform/
 *.tfstate
 *.tfstate.*
 design-doc.html
+.env

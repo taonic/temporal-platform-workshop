@@ -1,0 +1,81 @@
+# The control plane, as a Deployment.
+#
+# It runs against a Temporal Cloud namespace rather than a local dev server, so
+# there is no server to host here -- only the worker that polls it.
+#
+# Note what is NOT in this manifest: the Cloud API key. The worker reads it from
+# Vault, authenticating as this pod's ServiceAccount, exactly as the managed
+# worker does after challenge 4. A key in a Deployment env var would be readable
+# by anyone with `kubectl get deploy -o yaml`, which is the same mistake as
+# minting one in Terraform.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-worker
+  namespace: platform
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-worker
+  namespace: platform
+spec:
+  replicas: 1
+  # The reconciler is an entity workflow and Temporal is the lock, so two
+  # replicas would be correct. One, because a second adds nothing a student can
+  # observe and doubles the log volume they have to read.
+  selector:
+    matchLabels:
+      app: platform-worker
+  template:
+    metadata:
+      labels:
+        app: platform-worker
+    spec:
+      serviceAccountName: platform-worker
+      containers:
+        - name: platform-worker
+          image: platform-worker:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TEMPORAL_ADDRESS
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: temporal-address }
+            - name: TEMPORAL_NAMESPACE
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: control-namespace }
+            - name: VAULT_ADDR
+              value: http://vault.platform.svc:8200
+            - name: VAULT_K8S_ROLE
+              value: platform-worker
+            - name: STATE_SERVICE_URL
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: state-service-url }
+            - name: STATE_TOKEN
+              valueFrom:
+                secretKeyRef: { name: platform-bootstrap, key: state-token }
+            - name: WORKSHOP_USERNAME
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: username }
+            - name: WORKSHOP_COHORT
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: cohort, optional: true }
+            # The account's namespace limit. The reconciler refuses an apply that
+            # would exceed it, so the failure names the real cause instead of
+            # arriving as a Cloud error from inside a Terraform activity.
+            - name: PLATFORM_NAMESPACE_QUOTA
+              valueFrom:
+                configMapKeyRef: { name: platform-env, key: namespace-quota, optional: true }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "2", memory: 1Gi }
+          volumeMounts:
+            - name: scratch
+              mountPath: /var/lib/platform
+      volumes:
+        # Terraform writes its workspace, plugin cache and state scratch here.
+        # emptyDir rather than a PVC: every workspace is materialised fresh from
+        # the embedded module on each activity attempt, so nothing in it needs to
+        # outlive the pod. The real state lives in the tfstate service.
+        - name: scratch
+          emptyDir: {}

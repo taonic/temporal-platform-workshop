@@ -38,9 +38,9 @@ func TestValidationReportsEveryProblemAtOnce(t *testing.T) {
 
 // PhysicalName is where the reserved-after-deletion problem is solved, so it is
 // worth pinning exactly.
-func TestPhysicalNameUsesTheSlot(t *testing.T) {
+func TestPhysicalNameUsesTheUsername(t *testing.T) {
 	s := valid()
-	if got, want := s.PhysicalName(7, EnvProd), "ws-7-orders-prod"; got != want {
+	if got, want := s.PhysicalName("alice", EnvProd), "ws-alice-orders-prod"; got != want {
 		t.Errorf("PhysicalName = %q, want %q", got, want)
 	}
 }
@@ -102,4 +102,15 @@ func TestLoadDirSkipsUnderscoreFiles(t *testing.T) {
 
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
+}
+
+// TestPhysicalNameFitsCloudsLimit is the reason UsernameRe and nameRe are capped
+// where they are. Cloud rejects a namespace name over 39 characters, and the two
+// user-supplied parts share one budget -- so neither cap can be checked alone.
+func TestPhysicalNameFitsCloudsLimit(t *testing.T) {
+	s := &Spec{Name: "aaaaaaaaaaaa"}                        // 12, the maximum a spec name may be
+	longest := s.PhysicalName("bbbbbbbbbbbbbb", EnvStaging) // 14, the maximum a username may be
+	if len(longest) > 39 {
+		t.Fatalf("longest possible namespace name is %d characters, Cloud allows 39: %s", len(longest), longest)
+	}
 }

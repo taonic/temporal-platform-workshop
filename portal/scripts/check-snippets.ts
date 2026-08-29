@@ -17,8 +17,7 @@ import { LABS, snippetKey } from '../src/course';
 import type { SnippetContext } from '../src/course/types';
 
 const ctx: SnippetContext = {
-  participant: 'ci',
-  slot: 7,
+  username: 'example',
   accountId: 'acct1',
   namespacePattern: 'ws-7-orders-<environment>',
   stagingSuffix: 'ws-7-orders-staging',

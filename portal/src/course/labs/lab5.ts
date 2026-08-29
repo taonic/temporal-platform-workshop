@@ -11,7 +11,7 @@ export const lab5: LabDef = {
     'after the paved road, a day. You have spent four challenges building a platform and have not ' +
     'once used it as a customer. Empty directory. Stopwatch. Go.',
 
-  steps: ({ slot }) => [
+  steps: ({ username }) => [
     {
       label: 'Start the clock',
       command: 'date +%s > /tmp/started',
@@ -31,8 +31,8 @@ export const lab5: LabDef = {
       expect: 'Compare it to one-to-two weeks.',
     },
     {
-      label: `Look at what slot ${slot} now holds`,
-      command: 'nsctl slot status',
+      label: `Look at what ${username} now holds`,
+      command: 'nsctl status payments',
       expect:
         'Then have the argument: you built the same control loop OpenAI built as a Kubernetes ' +
         'operator. You never wrote a lock, because the workflow id was the resource identity. And ' +
@@ -44,14 +44,15 @@ export const lab5: LabDef = {
   // Illustrative, and no path: there is no file for the platform's own customer to
   // write. It is also the one snippet that undermines its own challenge, so the
   // disclosure says so -- the point of a stopwatch is that you ran the race.
-  snippets: ({ slot }) => [
+  snippets: ({ username }) => [
     {
       id: 'paved-road',
       lang: 'bash',
       caption: 'The whole paved road, as a developer walks it. Using this stops the clock being meaningful.',
       code: [
         '# You are a developer on a new team. You have an empty directory.',
-        'nsctl new --non-interactive --name payments --owner risk-team --retention 7',
+        'nsctl new --non-interactive --name payments --owner risk-team --retention 7 \\',
+        '  --environments staging',
         'nsctl apply -f specs/payments.yaml',
         '',
         '# Two namespaces and two credentials exist now. Write a workflow:',
@@ -62,10 +63,11 @@ export const lab5: LabDef = {
         'cd worker && uv run python -m platform_sdk.main --config ../generated/payments.json &',
         '',
         '# Start one, against the namespace your platform just built:',
-        `temporal workflow start --type PaymentsWorkflow --task-queue payments-main \\`,
-        `  --namespace ws-${slot}-payments-staging --input '\"world\"' \\`,
+        `./scripts/workshop-creds exec -- \\`,
+        `  temporal workflow start --type PaymentsWorkflow --task-queue payments-main \\`,
+        `  --namespace ws-${username}-payments-staging --input '\"world\"' \\`,
         '  --api-key "$(vault kv get -field=api_key \\',
-        `    secret/namespaces/$WORKSHOP_PARTICIPANT/payments/staging)"`,
+        `    secret/namespaces/${username}/payments/staging)"`,
       ].join('\n'),
     },
   ],
@@ -75,7 +77,7 @@ export const lab5: LabDef = {
       id: 'second-namespace',
       title: 'A second spec was provisioned through the platform',
       detail:
-        'A namespace with a different spec name in your slot, created without you writing any ' +
+        'A namespace with a different spec name under your username, created without you writing any ' +
         'Terraform or touching the Cloud UI.',
     },
     {
@@ -97,7 +99,7 @@ export const lab5: LabDef = {
       ctx.check(
         'second-namespace',
         specs.size >= 2,
-        `${specs.size} specs in slot ${ctx.slot}: ${[...specs].join(', ')}`,
+        `${specs.size} specs for ${ctx.username}: ${[...specs].join(', ')}`,
         specs.size === 1
           ? `only one spec so far (${[...specs][0]}). Provision another as the developer would`
           : 'no namespaces yet',
