@@ -1,9 +1,9 @@
 slug: temporal-platform-workshop
+id: ykj3fx5xuosf
 title: Build a Temporal Cloud Control Plane
-teaser: >-
-  Build the platform, not the workflow. A CLI that generates specs, a reconciler
-  that interprets them as Temporal workflows, and a paved road that ends with a
-  developer's worker on Kubernetes.
+teaser: Build the platform, not the workflow. A CLI that generates specs, a reconciler
+  that interprets them as Temporal workflows, and a paved road that ends with a developer's
+  worker on Kubernetes.
 description: |-
   Most Temporal training teaches you to write a Workflow. This one teaches you to
   **build the platform underneath it**.
@@ -38,39 +38,36 @@ description: |-
   A working control plane you can read, and one sentence you can defend in a design
   review: *the workflow id is the resource identity, so Temporal's uniqueness
   constraint is your state lock.*
-
 icon: https://storage.googleapis.com/instruqt-frontend/img/tracks/default.png
 tags:
-  - platform-engineering
-  - temporal-cloud
-  - terraform
-  - go
-  - python
-  - kubernetes
+- platform-engineering
+- kubernetes
+- python
+- temporal-cloud
+- terraform
+- go
 owner: temporal
 developers:
-  - tao.guo@temporal.io
-
-# Self-paced: nothing here depends on an instructor being in the room, and no
-# challenge depends on another student's resources.
-#
-# One Instruqt challenge, four labs. The prose lives in the portal, which
-# personalises every command with the student's username, cohort and region --
-# something an assignment file cannot do. This track is the sandbox and the
-# pointer to it; see CLAUDE.md.
+- tao.guo@temporal.io
 idle_timeout: 7200
 timelimit: 28800
 sandbox_preset: temporal-platform-workshop
-
 lab_config:
   extend_ttl: 10800
+  sidebar_enabled: false
   feedback_recap_enabled: true
+  feedback_tab_enabled: false
+  loadingMessages:
+  - Warming the terraform provider cache, so your first apply is not your first wait.
+  - Building the worker image now, so challenge 4 is about deployment and not about
+    docker.
+  - Leasing you a slot. Namespace names are recyclable by design; ask us why.
+  - Starting a Kubernetes cluster, so that the one you deploy to is a real kubelet.
+  - Deliberately not starting a control plane. Making the namespace it runs on is
+    challenge 1.
+  override_challenge_layout: false
   hideStopButton: true
   default_layout: AssignmentLeft
   default_layout_sidebar_size: 38
-  loadingMessages:
-    - Warming the terraform provider cache, so your first apply is not your first wait.
-    - Building the worker image now, so challenge 4 is about deployment and not about docker.
-    - Leasing you a slot. Namespace names are recyclable by design; ask us why.
-    - Starting a Kubernetes cluster, so that the one you deploy to is a real kubelet.
-    - Deliberately not starting a control plane. Making the namespace it runs on is challenge 1.
+checksum: "16897735968472205602"
+enhanced_loading: false

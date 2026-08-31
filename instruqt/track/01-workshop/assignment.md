@@ -1,9 +1,10 @@
 ---
 slug: workshop
+id: qzzm0tgqgxps
 type: challenge
 title: Your workshop sandbox
-teaser: Everything the prerequisites ask you to install is already here. Your
-  instructions live in the workshop portal.
+teaser: Everything the prerequisites ask you to install is already here. Your instructions
+  live in the workshop portal.
 notes:
 - type: text
   contents: |-
@@ -43,20 +44,19 @@ notes:
     server and no control plane: the first thing you build is the namespace your
     control plane will run on, and the first command of challenge 1 is what brings
     Vault up to hold your Cloud API key.
-# hostname is the VM's name in sandbox/config.yml -- platform-workshop, not
-# workshop. A tab naming a host the sandbox does not have is a tab that never
-# connects.
 tabs:
-- title: Terminal
+- id: h8nnzkc9mmpl
+  title: Terminal
   type: terminal
   hostname: platform-workshop
-- title: Editor
+- id: ftbq2snqmqpz
+  title: Editor
   type: service
   hostname: platform-workshop
   port: 8443
 difficulty: intermediate
 timelimit: 28800
+lab_config:
+  custom_layout: '{"root":{"children":[{"leaf":{"tabs":["h8nnzkc9mmpl","ftbq2snqmqpz"],"activeTabId":"h8nnzkc9mmpl","size":100}}],"orientation":"Horizontal"}}'
+enhanced_loading: null
 ---
-
-Your instructions are in the portal. This panel is here to tell you that, and to
-give you the terminal and editor to work in.
