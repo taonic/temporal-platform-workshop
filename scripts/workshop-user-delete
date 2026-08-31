@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# Delete one student from both sides, by email.
+#
+#   workshop-user-delete tao@temporal.workshop            show what would go
+#   workshop-user-delete tao@temporal.workshop --confirm  actually delete
+#
+# For repairing one account rather than clearing a cohort -- use
+# workshop-teardown for that. The case this exists for: a join that half-failed
+# and left an Authentik user with no Cloud user behind it, where rejoining is
+# awkward because the name is taken.
+#
+# Both sides are attempted independently and a missing user on either is reported
+# rather than treated as failure. That is the point: the states worth repairing
+# are exactly the asymmetric ones.
+set -uo pipefail
+
+EMAIL="${1:-}"
+CONFIRM="${2:-}"
+[ -n "$EMAIL" ] || { echo "usage: workshop-user-delete <email> [--confirm]" >&2; exit 2; }
+case "$EMAIL" in *@*) ;; *) echo "ERROR: give the full email, e.g. tao@temporal.workshop" >&2; exit 2 ;; esac
+
+# The two sides key on different things and the email carries both. Authentik
+# knows the student by the bare username they typed at /join; Temporal Cloud
+# knows them by the full address the portal derived from it. Splitting here
+# rather than at each call site keeps that asymmetry stated once.
+USERNAME="${EMAIL%%@*}"
+
+: "${TEMPORAL_CLOUD_API_KEY:?an account-owner key -- deleting users is an admin operation}"
+AUTHENTIK_URL="${AUTHENTIK_URL:-}"
+AUTHENTIK_URL="${AUTHENTIK_URL%/}"   # .env files tend to carry a trailing slash
+AUTHENTIK_TOKEN="${AUTHENTIK_TOKEN:-}"
+
+dry() { [ "$CONFIRM" = "--confirm" ] && return 1 || return 0; }
+act() { dry && printf '  would delete  %s\n' "$1" || printf '  deleting      %s\n' "$1"; }
+skip() { printf '  not found     %s\n' "$1"; }
+
+FAILED=0
+BODY=$(mktemp)
+trap 'rm -f "$BODY"' EXIT
+
+echo "==> Authentik"
+if [ -z "$AUTHENTIK_URL" ] || [ -z "$AUTHENTIK_TOKEN" ]; then
+  echo "  skipped: set AUTHENTIK_URL and AUTHENTIK_TOKEN"
+else
+  # Authentik is keyed on the username -- but which string that holds depends on
+  # when the account was made. The portal writes the bare name and puts the address
+  # in `email`; the accounts on the live instance carry the full address as the
+  # username. Both are accepted here, because a repair tool that only understands
+  # the convention it happens to agree with is a tool that reports "not found" on
+  # the exact accounts it exists to clean up.
+  #
+  # One `search` (substring over username, name and email) gets the candidates,
+  # then an EXACT re-check picks the row. The candidate set really does contain the
+  # wrong people -- searching "tao" also returns akadmin, whose email merely
+  # contains it -- and a delete that trusted the first row would take their account.
+  #
+  # Authentik answers every auth failure with 403 and a `detail` body, so an
+  # unusable token looks exactly like an absent user unless you read the body.
+  # Reporting "not found" there would send someone hunting for a user that exists.
+  query=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$USERNAME")
+  resp=$(curl -sS -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
+        "$AUTHENTIK_URL/api/v3/core/users/?search=$query")
+  pk=$(printf '%s' "$resp" | USERNAME="$USERNAME" EMAIL="$EMAIL" python3 -c 'import os,sys,json
+try: d = json.load(sys.stdin)
+except Exception: raise SystemExit
+if isinstance(d, dict) and "detail" in d: print("ERR:" + d["detail"]); raise SystemExit
+name, email = os.environ["USERNAME"], os.environ["EMAIL"]
+hit = {u["pk"]: u for u in (d.get("results") or [])
+       if u.get("username") in (name, email) or u.get("email") == email}
+# Two accounts for one student is the half-made state this script repairs, but
+# guessing which to delete is not a repair. Name them and let a human choose.
+if len(hit) > 1:
+    print("AMBIG:" + ", ".join("pk %s (%s)" % (p, u.get("username")) for p, u in hit.items()))
+elif hit:
+    p = next(iter(hit))
+    # pk:username -- so the output names the row that is actually going, whichever
+    # of the two conventions its username turned out to follow.
+    print("%s:%s" % (p, hit[p].get("username")))' 2>/dev/null)
+  case "$pk" in
+    ERR:*)   echo "  auth failed   ${pk#ERR:}"; pk="SKIP" ;;
+    AMBIG:*) echo "  ambiguous     ${pk#AMBIG:}"
+             echo "                delete the right one in the Authentik UI"; pk="SKIP" ;;
+  esac
+  if [ "$pk" = "SKIP" ]; then
+    : # already reported; do not also claim the user is absent
+  elif [ -n "$pk" ]; then
+    who="${pk#*:}"
+    pk="${pk%%:*}"
+    act "authentik user $who (pk $pk)"
+    if ! dry; then
+      # Report what the API did, not what was attempted. This token can easily
+      # hold view and change without delete -- that is the permission set
+      # scripts/authentik-check grants -- and Authentik refuses with 403 and a
+      # `detail` body. Piping the response to /dev/null turns that refusal into a
+      # cheerful "deleted" and a user who is still there, which is the one outcome
+      # a repair tool must never produce.
+      code=$(curl -sS -o "$BODY" -w '%{http_code}' -X DELETE \
+        -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
+        "$AUTHENTIK_URL/api/v3/core/users/$pk/")
+      case "$code" in
+        2*)  echo "                deleted" ;;
+        403) echo "                FAILED 403: the token cannot delete users."
+             echo "                Grant authentik_core.delete_user -- scripts/authentik-check --fix"
+             FAILED=1 ;;
+        *)   echo "                FAILED $code: $(head -c 160 "$BODY")"; FAILED=1 ;;
+      esac
+    fi
+  else
+    skip "authentik user $USERNAME"
+  fi
+fi
+
+echo "==> Temporal Cloud"
+if temporal cloud user get --user-email "$EMAIL" --api-key "$TEMPORAL_CLOUD_API_KEY" >/dev/null 2>&1; then
+  act "cloud user $EMAIL"
+  # --idempotent so a concurrent delete is not an error; --auto-confirm because
+  # this command prompts, and a script whose stdin is not a TTY answers nothing
+  # and gets "Aborting".
+  if ! dry; then
+    if temporal cloud user delete --user-email "$EMAIL" \
+      --api-key "$TEMPORAL_CLOUD_API_KEY" --auto-confirm --idempotent >"$BODY" 2>&1; then
+      echo "                deleted"
+    else
+      echo "                FAILED: $(head -c 200 "$BODY")"
+      FAILED=1
+    fi
+  fi
+else
+  skip "cloud user $EMAIL"
+fi
+
+echo
+if dry; then
+  echo "Nothing was deleted. Re-run with --confirm."
+elif [ "$FAILED" -ne 0 ]; then
+  # Non-zero, because the half-deleted state this leaves behind is worse than the
+  # half-made one the script was run to repair.
+  echo "Something did NOT delete. The name is still taken; see the FAILED lines above." >&2
+  exit 1
+else
+  echo "Done. The name is free again -- rejoining at /join will create both sides."
+fi

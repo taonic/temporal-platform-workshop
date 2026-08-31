@@ -1,59 +1,208 @@
 #!/usr/bin/env bash
 # Sandbox prebuild.
 #
-# Everything slow happens here so that challenge 1 starts with `nsctl new` rather
-# than with a toolchain download. The single most important line is the warm
-# provider cache: a cold `terraform init` against temporalio/temporalcloud is a
-# silent two-minute stall on the student's very first apply, and it looks like a
-# hung workflow.
+# Everything slow happens here so that challenge 1 starts with `workshop init`
+# rather than with a toolchain download. Three lines matter more than the rest:
+# the warm Terraform provider cache, the first k3s start, and the two container
+# images. A cold `terraform init` against temporalio/temporalcloud is a silent
+# two-minute stall on the student's very first apply and it looks like a hung
+# workflow; a cold k3s start pulls its own system images while the student waits
+# at the first prompt of the day.
+#
+# What this does NOT do, on purpose:
+#
+#   * No Vault. It runs as a pod on k3s (deploy/platform/vault.yaml), in dev
+#     mode, which means its contents do not survive the pod restarting -- and a
+#     prebuilt sandbox is snapshotted and booted, so anything seeded here is gone
+#     before a student sees it. `workshop init --api-key` brings Vault up and
+#     seeds the key at the moment the student pastes it, which is also the only
+#     moment anybody holds it. A host `vault server -dev` on 8200 used to run
+#     here as well; nothing addressed it, because $VAULT_ADDR is the NodePort.
+#
+#   * No Temporal dev server, and no host copy of the control plane. Both used to
+#     be here, from before this workshop ran against Temporal Cloud. The control
+#     plane is a Deployment the STUDENT creates in challenge 2, on the namespace
+#     their own Terraform made in challenge 1 -- that bootstrap is the punchline,
+#     and a control plane already running against a local dev server gives it
+#     away and answers to the wrong Temporal.
+#
+#   * No API key. There is none to seed: the platform's service account is
+#     something the student creates in challenge 1, in the sandbox exactly as on
+#     a laptop.
 set -euo pipefail
 
 log() { printf '\n=== %s\n' "$*"; }
 WORKSHOP_DIR="${WORKSHOP_DIR:-/workspace/platform}"
 
+# Pinned, every one of them. A tool that changes under a cohort is a tool that
+# breaks a lab, and the failure lands on a student who has no way to know the
+# instruction was fine yesterday.
+GO_VERSION=1.25.4
+TF_VERSION=1.9.8
+VAULT_VERSION=1.18.3          # must match deploy/platform/vault.yaml; asserted below
+TEMPORAL_CLI_VERSION=1.8.2    # `temporal cloud` is built in from 1.5; do not un-pin
+UV_VERSION=0.12.7
+K9S_VERSION=v0.32.7
+CODE_SERVER_VERSION=4.135.0
+K3S_CHANNEL=v1.31
+
 log "system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl git jq unzip ca-certificates >/dev/null
+# make: the Makefile is where the work is defined and `workshop <verb>` forwards
+# to it, so a sandbox without make has no working front door.
+# sudo: deploy/platform/up.sh and the graders call `sudo k3s ...`, which fails
+# with "command not found" rather than a permission error when it is absent.
+# nano, vim: what a student who does not want the editor reaches for, and what
+# the `code` shim below tells them about when the editor is not open yet.
+apt-get install -y -qq curl git jq unzip make sudo nano vim ca-certificates >/dev/null
 
 log "go toolchain"
-GO_VERSION=1.25.4
 curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
 export PATH=/usr/local/go/bin:$PATH
-echo 'export PATH=/usr/local/go/bin:$PATH' >> /root/.bashrc
 
 log "uv"
-curl -fsSL https://astral.sh/uv/install.sh | sh
+curl -fsSL "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
 export PATH="/root/.local/bin:$PATH"
-echo 'export PATH=/root/.local/bin:$PATH' >> /root/.bashrc
 
 log "terraform"
-TF_VERSION=1.9.8
 curl -fsSL -o /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
 unzip -q -o /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip
 
-log "vault"
-VAULT_VERSION=1.18.3
+log "vault cli"
+# The CLI only, not a server. It talks to the Vault pod on the NodePort.
 curl -fsSL -o /tmp/vault.zip "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
 unzip -q -o /tmp/vault.zip -d /usr/local/bin && rm /tmp/vault.zip
 
 log "temporal cli"
-curl -fsSL https://temporal.download/cli.sh | sh -s -- --dir /usr/local
+curl -fsSL https://temporal.download/cli.sh | sh -s -- --version "$TEMPORAL_CLI_VERSION" --dir /usr/local
 ln -sf /usr/local/bin/temporal /usr/bin/temporal 2>/dev/null || true
+# Every challenge from 1 onwards runs `temporal cloud`, which is part of the CLI
+# rather than a plugin -- but only from 1.5, and the labs read the account and the
+# namespace back out of it. Proving it here turns a stale pin into a failed
+# preset build instead of a failed challenge 1.
+temporal cloud --help >/dev/null
 
-log "k3s (installed, not started -- challenge 4 starts it)"
-curl -fsSL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh -
+log "k9s"
+# A terminal UI for the cluster. Not required by any command in the workshop, but
+# challenge 2 says "look at what you just built" and this is what it says to look
+# with -- and a student who has never used Kubernetes gets a way to see what the
+# platform made that does not involve memorising kubectl.
+curl -fsSL -o /tmp/k9s.tar.gz \
+  "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz"
+tar -C /usr/local/bin -xzf /tmp/k9s.tar.gz k9s && rm /tmp/k9s.tar.gz
+
+log "code-server, and the \`code\` command the labs type"
+# Four lab steps are `code <file>`, and until now nothing in this sandbox could
+# answer that -- while the challenge already advertised an Editor tab on 8443
+# with nothing serving it.
+#
+# --auth none: the tab is proxied to the participant's own session, and a
+# password prompt in front of it is a step the labs would have to explain. Note
+# what that means: on a sandbox with high-ports open, this editor is a root
+# filesystem behind no credential. Acceptable for a per-student box that is
+# deleted at the end of the day; not a pattern to copy anywhere else.
+curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "$CODE_SERVER_VERSION"
+
+cat > /etc/systemd/system/code-server.service <<UNIT
+[Unit]
+Description=code-server, the Editor tab
+After=network.target
+
+[Service]
+Environment=HOME=/root
+ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8443 --auth none \\
+  --disable-telemetry --disable-update-check --disable-workspace-trust $WORKSHOP_DIR
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# `code <file>` from the Terminal tab, landing in the Editor tab.
+#
+# VS Code's CLI does not open files by itself -- it asks a running window to,
+# over a unix socket named by $VSCODE_IPC_HOOK_CLI. Inside the Editor tab's own
+# terminal that variable is already set and the real CLI just works. The Terminal
+# tab is a different session and does not have it, so find the socket the editor
+# left behind and use that.
+#
+# When no window has ever been opened there is no socket and nothing to open the
+# file IN. That case says so, in the vocabulary of the tabs the student can see,
+# rather than failing as `code: command not found` or silently doing nothing.
+cat > /usr/local/bin/code <<'SHIM'
+#!/usr/bin/env bash
+set -uo pipefail
+CLI=/usr/lib/code-server/lib/vscode/bin/remote-cli/code
+[ -x "$CLI" ] || { echo "code-server is not installed on this machine." >&2; exit 1; }
+
+if [ -n "${VSCODE_IPC_HOOK_CLI:-}" ]; then exec "$CLI" "$@"; fi
+
+sock=$(ls -t /tmp/vscode-ipc-*.sock /run/user/*/vscode-ipc-*.sock 2>/dev/null | head -1)
+if [ -n "${sock:-}" ]; then exec env VSCODE_IPC_HOOK_CLI="$sock" "$CLI" "$@"; fi
+
+cat >&2 <<MSG
+The Editor tab has not been opened yet, so there is no editor window for
+${1:-that file} to open in.
+
+  Click the Editor tab at the top of this screen once -- it opens
+  ${WORKSHOP_DIR:-/workspace/platform} -- then run this command again and the file appears in it.
+
+Or just open the file in the tree there. nano and vim are installed if you
+would rather stay in the terminal.
+MSG
+exit 1
+SHIM
+chmod +x /usr/local/bin/code
+
+systemctl daemon-reload
+# --now as well as --enable: this proves it starts, here, rather than at boot in
+# front of a student with no build log to read.
+systemctl enable --now code-server
+for _ in $(seq 1 30); do curl -fsS --max-time 2 -o /dev/null http://127.0.0.1:8443/healthz && break; sleep 1; done
+curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:8443/healthz \
+  || { echo "FAIL code-server is not answering on 8443; the Editor tab would be blank" >&2; exit 1; }
+
+log "k3s"
+# Installed here, started further down -- once the images are staged where its
+# containerd will import them at startup.
+#
+# It IS started during the build now, which is a change worth being explicit
+# about: this used to be installed and left stopped, from when the cluster first
+# appeared in challenge 4. Vault runs on it, and `workshop init --api-key` is the
+# first command of the day, so it is challenge-1 material -- and a first k3s start
+# pulls coredns, traefik, the local-path provisioner and metrics-server before it
+# will schedule anything. That pull belongs in a preset build.
+curl -fsSL https://get.k3s.io | INSTALL_K3S_CHANNEL="$K3S_CHANNEL" INSTALL_K3S_SKIP_START=true sh -
 
 log "clone the platform"
 mkdir -p "$(dirname "$WORKSHOP_DIR")"
 git clone --depth 1 --branch "${LAB_REPO_REF:-main}" "${LAB_REPO_URL}" "$WORKSHOP_DIR"
 cd "$WORKSHOP_DIR"
+# The post-commit hook runs `tpctl sync`, which is how challenge 3's "commit a
+# spec and the platform converges" works at all.
 git config core.hooksPath hooks
 
-log "build the control plane"
-go build -o /usr/local/bin/nsctl ./cmd/nsctl
-go build -o /usr/local/bin/platform-worker ./cmd/platform-worker
+# The vault CLI installed above and the Vault the cluster runs must be the same
+# version. Asserted rather than assumed: they are pinned in two files, and a
+# mismatch surfaces as an unrelated-looking API error in front of a room.
+VAULT_IMAGE="$(awk '/image: hashicorp\/vault:/ {print $2; exit}' deploy/platform/vault.yaml)"
+[ "$VAULT_IMAGE" = "hashicorp/vault:${VAULT_VERSION}" ] || {
+  echo "VAULT_VERSION=$VAULT_VERSION here, but deploy/platform/vault.yaml runs $VAULT_IMAGE." >&2
+  exit 1
+}
 
+log "build the control plane cli"
+# tpctl on PATH, because every lab from challenge 2 onward types it bare. The env
+# file puts $WORKSHOP_DIR/bin first, so a student who rebuilds it with
+# `workshop build` gets their own copy ahead of this one.
+go build -o /usr/local/bin/tpctl ./cmd/tpctl
+# The rest of the module, to warm the build cache -- and `go mod download` for the
+# test-only dependencies `go build` never reaches, so that challenge 2's
+# `go build ./...` and `workshop test` are compiles rather than downloads.
+go mod download
+go build ./...
 
 log "python worker dependencies"
 (cd worker && uv sync --extra dev)
@@ -64,78 +213,107 @@ mkdir -p /root/.terraform.d/plugin-cache
 echo 'plugin_cache_dir = "/root/.terraform.d/plugin-cache"' > /root/.terraformrc
 (cd terraform/namespace && terraform init -backend=false -input=false >/dev/null)
 
-log "pre-build the managed worker image and import it into k3s"
-docker build -q -t platform-worker:dev ./worker
-docker save platform-worker:dev -o /var/lib/rancher/k3s/agent/images/platform-worker.tar 2>/dev/null \
-  || { mkdir -p /var/lib/rancher/k3s/agent/images && docker save platform-worker:dev -o /var/lib/rancher/k3s/agent/images/platform-worker.tar; }
+log "build the two images, and stage them for k3s"
+# TWO images, and they are not interchangeable -- this used to build the Python
+# worker and tag it platform-worker:dev, which is the control plane's tag, so the
+# control plane pod would have come up running the managed worker.
+#
+#   platform-worker:dev   the Go control plane (challenge 2). Built through
+#                         up.sh so `workshop platform-up` and this agree.
+#   managed-worker:dev    the Python worker a product team deploys (challenge 4).
+#                         `tpctl deploy` rebuilds it from the student's own
+#                         workflow, so what this buys is a warm Docker layer
+#                         cache rather than the final image.
+./deploy/platform/up.sh build
+make worker-image
+docker pull "$VAULT_IMAGE"
 
-log "vault, in dev mode"
-nohup vault server -dev -dev-root-token-id="${VAULT_DEV_ROOT_TOKEN_ID}" -dev-listen-address=0.0.0.0:8200 \
-  > /var/log/vault.log 2>&1 &
-export VAULT_TOKEN="${VAULT_DEV_ROOT_TOKEN_ID}"
-for _ in $(seq 1 30); do vault status >/dev/null 2>&1 && break; sleep 1; done
+# k3s runs its own containerd and cannot see the Docker daemon. Tarballs dropped
+# here are imported when k3s starts, which is why this happens before the first
+# start rather than through `k3s ctr images import` after it.
+mkdir -p /var/lib/rancher/k3s/agent/images
+docker save platform-worker:dev -o /var/lib/rancher/k3s/agent/images/platform-worker.tar
+docker save managed-worker:dev  -o /var/lib/rancher/k3s/agent/images/managed-worker.tar
+docker save "$VAULT_IMAGE"      -o /var/lib/rancher/k3s/agent/images/vault.tar
 
-log "seed the platform's own credential"
-# Vault's source role. The key lands here and nowhere else -- deliberately not in
-# a shell profile, because a student running `history` should not find it.
-vault kv put secret/platform/cloud-api-key api_key="${TEMPORAL_CLOUD_API_KEY}" >/dev/null
-unset TEMPORAL_CLOUD_API_KEY
-
-log "temporal dev server"
-nohup temporal server start-dev --ip 0.0.0.0 --ui-port 8233 --db-filename /var/lib/temporal.db \
-  > /var/log/temporal-dev.log 2>&1 &
-for _ in $(seq 1 60); do temporal operator namespace list >/dev/null 2>&1 && break; sleep 1; done
+log "start k3s, and let it settle"
+# enable as well as start: this image is snapshotted and booted, so a unit that
+# was only started during the build is not running when a student arrives.
+systemctl enable --now k3s
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+for _ in $(seq 1 90); do kubectl get nodes >/dev/null 2>&1 && break; sleep 2; done
+kubectl wait --for=condition=Ready node --all --timeout=180s
+# Proof the staged images actually landed, while there is still a build log
+# nobody is waiting on. Without this the first symptom is ImagePullBackOff in
+# front of a student, reported as "pull access denied" for a registry that was
+# never involved.
+for img in platform-worker:dev managed-worker:dev "$VAULT_IMAGE"; do
+  k3s ctr images ls -q | grep -q "$img" \
+    || { echo "FAIL $img is not in k3s's image store" >&2; exit 1; }
+done
 
 log "platform environment"
-# No STATE_TOKEN here. It is an HMAC over the student's username, and the username
-# is chosen at the portal after this script has finished -- so the portal issues it
-# and `workshop-creds init --state-token` writes it. The shared secret stays out of
-# /etc/workshop/env for the same reason the Cloud key does.
+# Its own named block, so that `workshop init` -- which rewrites `# >>> workshop`
+# and `# >>> workshop vault` -- cannot delete these lines, and these lines cannot
+# delete what it writes. Nothing here is a secret and nothing here is a choice the
+# student makes: identity, region and the Cloud address are all `init`'s to write,
+# and they come from the portal.
+#
+# Terraform state is local -- a file under .platform-state in the student's own
+# checkout. Nothing to reach, nothing to authenticate to, and debuggable with
+# `cat` when an apply goes wrong.
 install -d /etc/workshop
 cat > /etc/workshop/env <<ENV
+# >>> workshop sandbox
 export WORKSHOP_DIR=$WORKSHOP_DIR
-export WORKSHOP_COHORT=\${WORKSHOP_COHORT:-\$(date +%Y-%m)}
-export WORKSHOP_RUN_ID=${INSTRUQT_TRACK_SLUG:-local}-$(date +%s)
-export STATE_SERVICE_URL=$STATE_SERVICE_URL
+export WORKSHOP_COHORT=\${WORKSHOP_COHORT:-$(date +%Y-%m)}
+# Tags what this box creates, so a teardown can find it. Per participant rather
+# than per image: baked at build time it would be one value for the whole cohort.
+export WORKSHOP_RUN_ID=\${INSTRUQT_PARTICIPANT_ID:-${INSTRUQT_TRACK_SLUG:-local}}
 export VAULT_ADDR=$VAULT_ADDR
 export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
-export TEMPORAL_ADDRESS=localhost:7233
-export TEMPORAL_NAMESPACE=default
-export PATH=/usr/local/go/bin:/root/.local/bin:\$PATH
+# k3s puts its kubeconfig somewhere only it knows about. kubectl is a symlink to
+# k3s and finds it on its own; k9s, which challenge 2 asks a student to open, does
+# not -- it reads \$KUBECONFIG like any other client and reports "no clusters".
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export PATH=/usr/local/go/bin:/root/.local/bin:$WORKSHOP_DIR/bin:\$PATH
+# <<< workshop sandbox
 ENV
-echo 'source /etc/workshop/env' >> /root/.bashrc
+
+# Sourced for every shell, and landing in the repo. Every command in every lab is
+# written to be run from the repo root -- `./scripts/workshop`, `code
+# terraform/...`, `ls specs/*.yaml` -- and Instruqt opens the terminal in /root.
+cat > /etc/profile.d/workshop.sh <<'PROFILE'
+# Once per shell. A login shell reads /etc/profile.d/*.sh and .bashrc sources this
+# too, and without the guard $PATH ends up holding every entry twice.
+#
+# The guard is on THIS file and not on the env file, deliberately: challenge 1
+# tells the student to run `source "$(./scripts/workshop env-file)"` after `init`
+# rewrites it, and a sentinel there would make that step do nothing.
+if [ -z "${WORKSHOP_ENV_SOURCED:-}" ]; then
+  # shellcheck disable=SC1091
+  source /etc/workshop/env
+  export WORKSHOP_ENV_SOURCED=1
+fi
+# Only for a shell someone is sitting at. A grader or a hook that sources this
+# should get the variables without being moved out of the directory it chose.
+case $- in *i*) cd "$WORKSHOP_DIR" 2>/dev/null || true ;; esac
+PROFILE
+# Both files, because which one a terminal reads depends on whether it opens a
+# login shell, and that is Instruqt's choice rather than ours. The guard above
+# makes reading both a no-op; reading neither is a student sitting in /root
+# wondering why every command in every lab says "no such file or directory".
+cat >> /root/.bashrc <<'BRC'
+source /etc/profile.d/workshop.sh
+BRC
 # shellcheck disable=SC1091
 source /etc/workshop/env
 
-log "start the control plane"
-cat > /etc/systemd/system/platform-worker.service <<UNIT
-[Unit]
-Description=Temporal platform control plane
-After=network.target
-
-[Service]
-EnvironmentFile=/etc/workshop/env.systemd
-WorkingDirectory=$WORKSHOP_DIR
-ExecStart=/usr/local/bin/platform-worker
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-sed 's/^export //' /etc/workshop/env | grep -v '^\$PATH' > /etc/workshop/env.systemd
-systemctl daemon-reload && systemctl enable --now platform-worker
-
 log "your portal link"
-# One token, two services: the portal derives per-participant tokens with the same
-# HMAC scheme as the state service, so PORTAL_SHARED_SECRET holds the same value as
-# STATE_SHARED_SECRET and STATE_TOKEN works for both.
 if [ -n "${PORTAL_URL:-}" ] && [ -n "${PORTAL_LINK_CODE:-}" ]; then
   # A BARE join link: the sandbox cannot build a personalised one, because the
   # student has not chosen their username yet. They pick it at the portal, the
   # portal hands back the personalised link, and that URL is what they bookmark.
-  # Rotating the code retires every outstanding link; rotating the shared secret
-  # would also break the state backend, which is why they are separate.
   LINK="${PORTAL_URL}/join?k=${PORTAL_LINK_CODE}"
   echo "export PORTAL_LINK='$LINK'" >> /etc/workshop/env
   printf '\n  %s\n\n' "$LINK"
@@ -144,14 +322,37 @@ else
 fi
 
 log "egress probes"
+# What the SANDBOX has to reach, not what a browser does. cloud.temporal.io is
+# the student's own tab and is not probed here.
 probe() {
   if curl -fsS --max-time 10 -o /dev/null "$1"; then echo "  ok   $1"
   elif [ "${WORKSHOP_STRICT_EGRESS:-1}" = "1" ]; then echo "  FAIL $1" >&2; return 1
   else echo "  warn $1 (non-strict)"; fi
 }
-probe "$STATE_SERVICE_URL/healthz"
-[ -n "${PORTAL_URL:-}" ] && probe "$PORTAL_URL/healthz"
-probe "https://cloud.temporal.io"
-probe "https://saas-api.tmprl.cloud"
+tcp_probe() { # host:port -- gRPC endpoints have nothing to GET
+  if timeout 10 bash -c "cat < /dev/null > /dev/tcp/${1%:*}/${1##*:}" 2>/dev/null; then
+    echo "  ok   $1"
+  elif [ "${WORKSHOP_STRICT_EGRESS:-1}" = "1" ]; then echo "  FAIL $1" >&2; return 1
+  else echo "  warn $1 (non-strict)"; fi
+}
+if [ -n "${PORTAL_URL:-}" ]; then probe "$PORTAL_URL/healthz"; fi
+# A well-known path rather than the root: the registry answers 200 either way,
+# but naming the endpoint says what is being asked for.
+probe "https://registry.terraform.io/.well-known/terraform.json"
+
+# The Ops API and the data plane, opened rather than fetched.
+#
+# `probe https://saas-api.tmprl.cloud` used to be here and could never have
+# passed: the root of that host answers 404, `curl -f` turns any 404 into a
+# non-zero exit, and strict egress turns that into a failed preset build. What we
+# actually want to know is whether the port is reachable at all -- the credentialed
+# calls that use it are the student's, not ours.
+#
+# 7233 matters as much as 443 and fails much later: challenge 2's control plane
+# dials its regional endpoint, and challenge 4 runs a workflow against
+# <namespace>.tmprl.cloud:7233 from this box. A blocked 7233 is invisible until
+# then, and looks like a broken worker.
+tcp_probe "saas-api.tmprl.cloud:443"
+tcp_probe "us-west-2.aws.api.temporal.io:7233"
 
 log "ready"

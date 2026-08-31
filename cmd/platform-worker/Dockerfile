@@ -1,6 +1,6 @@
 # The control plane, as an image.
 #
-# Built with the repo root as its context, like services/state. The Terraform
+# Built with the repo root as its context. The Terraform
 # module travels inside the binary via terraform/embed.go, so there is no
 # checkout to mount and no module directory to keep in sync with the pod -- which
 # is the reason that embed exists.

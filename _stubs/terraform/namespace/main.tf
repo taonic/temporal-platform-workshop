@@ -1,5 +1,5 @@
 # ============================================================================
-# Lab 1 — Spec to workflow
+# Lab 1 — Bootstrap by hand
 #
 # Goal: the reconciler already knows how to run Terraform. It has nothing to run.
 #       Write the module it applies.
@@ -26,9 +26,6 @@
 #     all. namespace_scoped_access and account_access are mutually exclusive, and
 #     the namespace assignment is immutable after creation: scope it to the wrong
 #     namespace and you destroy and recreate, key included.
-#   · one temporalcloud_namespace_tags with tags = var.tags. That resource
-#     manages the COMPLETE tag set, so a second one anywhere would wipe the
-#     first. The reconciler always sends every tag it wants.
 #
 # And in outputs.tf, which you also write:
 #   · output "namespace_id"       — the namespace's id

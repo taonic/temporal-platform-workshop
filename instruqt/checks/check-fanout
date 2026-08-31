@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# shellcheck disable=SC1091
+source /etc/workshop/env
+# The graders read the student's own checkout -- specs/, terraform/ and the
+# scripts below are all relative to it -- and Instruqt runs a check script from
+# wherever it likes. Without this, every one of them fails at `ls specs/*.yaml`
+# with "no such file or directory", which reads as "you never wrote a spec".
+cd "${WORKSHOP_DIR:-/workspace/platform}" || exit 1
+
+# `temporal cloud` needs the platform's key, and the key is in Vault rather than
+# in any environment. `workshop exec` is the one thing that bridges that: it puts
+# the key in the environment of a single command and lets it die there, and fills
+# in the Cloud address the CLI needs to go with it.
+tc() { ./scripts/workshop exec -- temporal "$@"; }
+fail() { echo "$1" >&2; exit 1; }
+
+SPEC=$(ls specs/*.yaml 2>/dev/null | grep -v '_example' | head -1)
+[ -n "$SPEC" ] || fail "No spec found."
+NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
+
+for ENV in staging prod; do
+  NS="ws-${WORKSHOP_USERNAME}-${NAME}-${ENV}"
+  tc cloud namespace get --name "$NS" -o json >/dev/null 2>&1 \
+    || fail "Namespace $NS does not exist. One spec should fan out to both environments."
+
+  # A namespace-scoped service account, not an account-level one. This is the
+  # least-privilege claim the challenge makes, so it is the one graded.
+  SA=$(tc cloud service-account list -o json 2>/dev/null \
+        | jq -r --arg n "${NS}-worker" '.serviceAccounts[]? | select(.spec.name==$n)')
+  [ -n "$SA" ] || fail "No service account named ${NS}-worker."
+  echo "$SA" | jq -e '.spec.access.namespaceScopedAccess != null' >/dev/null 2>&1 \
+    || fail "${NS}-worker is not namespace-scoped. A worker needs no account-level access."
+
+  # The credential must exist in Vault, because that is where the platform put it.
+  vault kv get -field=api_key "secret/namespaces/${WORKSHOP_USERNAME}/${NAME}/${ENV}" >/dev/null 2>&1 \
+    || fail "No credential in Vault at namespaces/${WORKSHOP_USERNAME}/${NAME}/${ENV}."
+done
+
+echo "ok: two namespaces, two namespace-scoped identities, two credentials in Vault"

@@ -1,4 +1,27 @@
 import { parsePhysicalName } from '@/course/naming';
+
+/**
+ * The spec name the labs prescribe.
+ *
+ * Lab 2 says `tpctl new --name orders`, so every lab after it can name the file,
+ * the namespace and the reconciler instead of printing a placeholder — and
+ * grading can ask a specific reconciler instead of guessing which one.
+ *
+ * A student who picks a different name is doing the challenge and will grade as
+ * incomplete. That is the trade: a wrong-but-predictable check beats a heuristic
+ * that silently grades whichever spec happened to sort first.
+ */
+export const DEFAULT_SPEC = 'orders';
+
+/**
+ * The workflow challenge 4 prescribes.
+ *
+ * Named once so the command the lab prints and the checkpoint that grades it
+ * cannot drift apart -- the student types what this says, and the grader looks
+ * for what this says. The worker config the student generates names it too, from
+ * the decorator in their own code.
+ */
+export const GREETING_WORKFLOW = 'GreetingWorkflow';
 import { listNamespaces } from '@/platform/cloud';
 
 /**

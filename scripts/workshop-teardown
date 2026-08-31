@@ -21,6 +21,10 @@ CONFIRM="${2:-}"
 
 : "${TEMPORAL_CLOUD_API_KEY:?an account-owner key -- deleting users is an admin operation}"
 AUTHENTIK_URL="${AUTHENTIK_URL:-}"
+# .env files tend to carry a trailing slash. `$URL//api/v3/...` is an HTML 404,
+# the `|| true` below swallows it, and the teardown then reports "none found" and
+# deletes nothing -- a silent no-op at the one moment nobody re-reads the output.
+AUTHENTIK_URL="${AUTHENTIK_URL%/}"
 AUTHENTIK_TOKEN="${AUTHENTIK_TOKEN:-}"
 
 dry() { [ "$CONFIRM" = "--confirm" ] && return 1 || return 0; }
@@ -50,17 +54,26 @@ if [ -z "$AUTHENTIK_URL" ] || [ -z "$AUTHENTIK_TOKEN" ]; then
 else
   # The portal stores the cohort as a user attribute, which is what makes this
   # scoped rather than "every user in the tenant".
+  # Take the address from `email` rather than rebuilding it from the username.
+  # The username IS the address for anyone the portal provisioned, so appending
+  # the domain to it yields `tao@temporal.workshop@temporal.workshop` -- a Cloud
+  # delete that matches nobody, swallowed by the `|| true` below, leaving the
+  # 300-user account limit exactly where it was.
   users=$(curl -fsS -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
     "$AUTHENTIK_URL/api/v3/core/users/?attributes=%7B%22cohort%22%3A%22$COHORT%22%7D" \
-    | jq -r '.results[]? | "\(.pk):\(.username)"' || true)
+    | jq -r --arg d "${WORKSHOP_DOMAIN:-temporal.workshop}" \
+        '.results[]? | "\(.pk):\(if (.email // "") != "" then .email else .username + "@" + $d end)"' \
+    || true)
   for u in $users; do
-    say "authentik ${u#*:}"
+    pk="${u%%:*}"
+    email="${u#*:}"
+    say "authentik $email (pk $pk)"
     dry || curl -fsS -X DELETE -H "Authorization: Bearer $AUTHENTIK_TOKEN" \
-      "$AUTHENTIK_URL/api/v3/core/users/${u%%:*}/" >/dev/null
-    # The Cloud user shares the username; deleting it is what frees the 300-user
+      "$AUTHENTIK_URL/api/v3/core/users/$pk/" >/dev/null
+    # The Cloud user shares the address; deleting it is what frees the 300-user
     # account limit across cohorts.
-    say "cloud ${u#*:}"
-    dry || temporal cloud user delete --user-email "${u#*:}@${WORKSHOP_DOMAIN:-example.invalid}" \
+    say "cloud $email"
+    dry || temporal cloud user delete --user-email "$email" \
       --api-key "$TEMPORAL_CLOUD_API_KEY" --idempotent >/dev/null 2>&1 || true
   done
 fi

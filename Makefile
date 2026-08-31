@@ -1,33 +1,24 @@
 BIN := bin
 
-# `make` on its own lists the verbs. This is the interface: everything a student
-# types is `make <verb>`, with one exception -- ./scripts/workshop-creds, which
-# wraps arbitrary commands and prompts, neither of which Make can express.
+# ./scripts/workshop is the interface a student types; every target below is
+# reachable as `workshop <verb>`. The Makefile stays the place the work is
+# DEFINED -- and `make check` still works -- but the verb list lives in one place
+# only, and this is not it: `make help` prints the script's.
+#
+# Why the script is the front door rather than Make: it also has to wrap arbitrary
+# commands (`exec -- <cmd>`) and prompt for values, neither of which Make can
+# express, so a student following the workshop would otherwise be switching
+# between two interfaces to do one job.
 .DEFAULT_GOAL := help
 
 help:
-	@echo "Environment"
-	@echo "  check          probe tools, cluster, vault, egress, control plane"
-	@echo "  base-up        k3s, vault, kubernetes auth, seed the cloud key"
-	@echo "  platform-up    build the worker image and deploy the control plane"
-	@echo "  up             both of the above"
-	@echo "  reload         rebuild + redeploy after editing anything compiled in"
-	@echo "  logs           follow the control plane"
-	@echo "  vault-forward  restart the vault port-forward if it died"
-	@echo "  down           delete the platform namespace"
-	@echo
-	@echo "Build and test"
-	@echo "  build          nsctl, platform-worker, tfstate"
-	@echo "  test lab-test  your feedback loop; FAILS until you have done the labs"
-	@echo "  verify         apply the answers, run everything, restore the stubs"
-	@echo
-	@echo "Credentials and variables: ./scripts/workshop-creds {init|exec|control|show|env-file}"
+	@./scripts/workshop help
 
 # BIN is defined first on purpose: .PHONY expands its prerequisites when the line
 # is read, so declaring it above the assignment would silently make the binary
 # targets non-phony again.
-.PHONY: build test lab-test py-test tf-validate lint clean dev worker-image sync-schema solve unsolve verify \
-        $(BIN)/nsctl $(BIN)/platform-worker $(BIN)/tfstate \
+.PHONY: build test lab-test py-test tf-validate lint clean dev worker-image sync-schema solve unsolve verify platform-down \
+        $(BIN)/tpctl $(BIN)/platform-worker \
         platform-image k3s-import up base-up platform-up cluster-check reload logs vault-forward down check help
 
 # The five files a student writes. Prose stubs live in _stubs/; the ANSWERS live in
@@ -40,7 +31,7 @@ help:
 #
 # _stubs/ starts with an underscore so the go tool ignores it -- otherwise it would
 # try to compile two copies of package platform.
-LAB_GO   := internal/platform/environment.go internal/platform/wait.go
+LAB_GO   := internal/platform/register.go
 LAB_TF   := terraform/namespace/main.tf terraform/namespace/outputs.tf
 LAB_PY   := worker/workflows/greeting.py
 
@@ -48,11 +39,10 @@ LAB_PY   := worker/workflows/greeting.py
 # make considered them up to date the moment the binary existed and silently
 # skipped the rebuild after a source edit -- the worst possible failure for the
 # labs, where the whole point is that your edit changes what the platform does.
-build: $(BIN)/nsctl $(BIN)/platform-worker $(BIN)/tfstate
+build: $(BIN)/tpctl $(BIN)/platform-worker
 
-$(BIN)/nsctl:           ; go build -o $@ ./cmd/nsctl
+$(BIN)/tpctl:           ; go build -o $@ ./cmd/tpctl
 $(BIN)/platform-worker: ; go build -o $@ ./cmd/platform-worker
-$(BIN)/tfstate:         ; go build -o $@ ./services/state
 
 # The platform control plane. Needs Vault reachable with the Cloud API key in it.
 dev: build
@@ -66,8 +56,10 @@ dev: build
 # terraform/embed.go embeds it -- so an edit is not live until the image is
 # rebuilt and the Deployment restarted.
 # ---------------------------------------------------------------------------
+# Delegated to up.sh so the build announces what it is doing, like every other
+# bring-up step. See rule 10 in DESIGN.md.
 platform-image:
-	docker build -t platform-worker:dev -f cmd/platform-worker/Dockerfile .
+	@./deploy/platform/up.sh build
 
 # Every recipe below is one or two lines on purpose. Anything with branching,
 # detection or a multi-line message lives in deploy/platform/up.sh instead --
@@ -108,6 +100,15 @@ check:
 vault-forward:
 	@./deploy/platform/up.sh forward
 
+# Deletes the PersistentVolumeClaim with everything else, so this discards the
+# control plane's Terraform state. The namespaces it tracked stay real -- the next
+# apply re-imports them rather than duplicating them.
+# Two teardowns, two blast radii. platform-down is the inverse of platform-up and
+# keeps Vault and the Terraform state; down deletes the namespace and everything
+# in it.
+platform-down:
+	@./deploy/platform/up.sh platform-down
+
 down:
 	kubectl delete namespace platform --ignore-not-found
 
@@ -138,8 +139,12 @@ lint:
 	go vet ./...
 	gofmt -l cmd internal services
 
+# managed-worker:dev, NOT platform-worker:dev. This builds the Python worker a
+# student's team deploys; that tag belongs to the Go control plane, and sharing it
+# meant `make worker-image` silently replaced the control plane's image with the
+# managed worker's -- after which the next pod restart runs the wrong program.
 worker-image:
-	docker build -t platform-worker:dev ./worker
+	docker build -t managed-worker:dev ./worker
 
 # ---------------------------------------------------------------------------
 # Instructor tooling. `solve` is also the honest way to see how a lab ends up.

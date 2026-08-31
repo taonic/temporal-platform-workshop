@@ -14,6 +14,26 @@ metadata:
   name: platform-worker
   namespace: platform
 ---
+# Terraform state, and the only thing in this deployment that must outlive a pod.
+#
+# No storageClassName: k3s provisions this with local-path, its default. That writes
+# to a directory on the node, so state survives `./scripts/workshop reload`, a crash
+# and a reschedule -- but not the sandbox being destroyed. That is the right bound
+# for a workshop, and `AttemptImport` still covers the case it does not.
+#
+# 1Gi is a formality. The real content is a few KB of JSON per namespace, and
+# local-path does not enforce the request anyway.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: platform-state
+  namespace: platform
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,6 +44,14 @@ spec:
   # The reconciler is an entity workflow and Temporal is the lock, so two
   # replicas would be correct. One, because a second adds nothing a student can
   # observe and doubles the log volume they have to read.
+  strategy:
+    # Recreate, not the default RollingUpdate, now that a ReadWriteOnce volume is
+    # attached: a rolling update starts the new pod BEFORE stopping the old one, and
+    # the replacement can then sit Pending forever waiting for a claim the outgoing
+    # pod still holds. `./scripts/workshop reload` hanging is a worse failure than
+    # the few seconds of downtime this costs -- and the worker is a task-queue
+    # poller, so downtime means Temporal waits, not that anything breaks.
+    type: Recreate
   selector:
     matchLabels:
       app: platform-worker
@@ -37,45 +65,42 @@ spec:
         - name: platform-worker
           image: platform-worker:dev
           imagePullPolicy: IfNotPresent
+          # Per-student configuration, whatever there is of it. The ConfigMap's
+          # keys ARE the environment variable names, so adding a setting is one
+          # line in up.sh and nothing here -- there is no second list to forget.
+          # An absent key is simply absent, and the Go side defaults it; see
+          # ConfigFromEnv in internal/platform/activity/config.go, which is the
+          # only place a default is written down.
+          envFrom:
+            - configMapRef: { name: platform-env, optional: true }
+          # Cluster facts, not student facts: where this pod runs, rather than
+          # who it runs for. They stay here because `env` takes precedence over
+          # `envFrom`, so a stray ConfigMap key cannot quietly repoint the worker
+          # at another Vault or another state directory.
           env:
-            - name: TEMPORAL_ADDRESS
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: temporal-address }
-            - name: TEMPORAL_NAMESPACE
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: control-namespace }
             - name: VAULT_ADDR
               value: http://vault.platform.svc:8200
             - name: VAULT_K8S_ROLE
               value: platform-worker
-            - name: STATE_SERVICE_URL
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: state-service-url }
-            - name: STATE_TOKEN
-              valueFrom:
-                secretKeyRef: { name: platform-bootstrap, key: state-token }
-            - name: WORKSHOP_USERNAME
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: username }
-            - name: WORKSHOP_COHORT
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: cohort, optional: true }
-            # The account's namespace limit. The reconciler refuses an apply that
-            # would exceed it, so the failure names the real cause instead of
-            # arriving as a Cloud error from inside a Terraform activity.
-            - name: PLATFORM_NAMESPACE_QUOTA
-              valueFrom:
-                configMapKeyRef: { name: platform-env, key: namespace-quota, optional: true }
+            # Terraform state, on the persistent volume below. One file per
+            # physical namespace; the Terraform workspace itself is a MkdirTemp
+            # under /tmp and is deliberately NOT here, because it is rebuilt from
+            # the embedded module on every attempt.
+            - name: STATE_DIR
+              value: /var/lib/platform/state
           resources:
             requests: { cpu: 200m, memory: 256Mi }
             limits: { cpu: "2", memory: 1Gi }
           volumeMounts:
-            - name: scratch
+            - name: state
               mountPath: /var/lib/platform
       volumes:
-        # Terraform writes its workspace, plugin cache and state scratch here.
-        # emptyDir rather than a PVC: every workspace is materialised fresh from
-        # the embedded module on each activity attempt, so nothing in it needs to
-        # outlive the pod. The real state lives in the tfstate service.
-        - name: scratch
-          emptyDir: {}
+        # State outlives the pod, which is the whole point of the claim above.
+        # Without it, every `./scripts/workshop reload` -- and challenge 4 rolls this
+        # Deployment as part of the lab -- would discard the .tfstate files, and the
+        # next apply would meet namespaces Terraform has never heard of. Survivable,
+        # because TerraformApply imports before it applies precisely to re-adopt
+        # orphans, but a re-import every time rather than a no-op.
+        - name: state
+          persistentVolumeClaim:
+            claimName: platform-state

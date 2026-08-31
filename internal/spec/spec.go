@@ -40,8 +40,12 @@ const (
 // State backends. Locking is deliberately absent from all of them -- the
 // reconciler's workflow id is the resource identity, so Temporal's uniqueness
 // constraint is the lock. See DESIGN.md rule 1.
+//
+// State is local by default. The workshop ran an HTTP state service for a while;
+// it was one more thing to deploy, one more credential to hand out, and one more
+// way for a sandbox with no egress to fail at challenge 1. A file on the box a
+// student is already sitting in front of is debuggable with `cat`.
 const (
-	BackendHTTP  = "http"
 	BackendLocal = "local"
 	BackendS3    = "s3"
 )
@@ -74,7 +78,7 @@ var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,11}$`)
 var UsernameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,13}$`)
 
 // ValidateUsername is exported because the portal validates at the join screen and
-// nsctl validates at the shell. One rule, two callers, no drift.
+// tpctl validates at the shell. One rule, two callers, no drift.
 func ValidateUsername(u string) error {
 	if !UsernameRe.MatchString(u) {
 		return fmt.Errorf(
@@ -85,7 +89,7 @@ func ValidateUsername(u string) error {
 
 var validEnvs = map[string]bool{EnvStaging: true, EnvProd: true}
 var validTiers = map[string]bool{TierStandard: true, TierCritical: true}
-var validBackends = map[string]bool{BackendHTTP: true, BackendLocal: true, BackendS3: true}
+var validBackends = map[string]bool{BackendLocal: true, BackendS3: true}
 
 // Validate reports every problem it finds rather than the first, because a
 // student fixing a spec by hand should not have to run the command five times.
@@ -122,7 +126,7 @@ func (s *Spec) Validate() error {
 		seen[e] = true
 	}
 	if !validBackends[s.StateBackend] {
-		problems = append(problems, fmt.Sprintf("stateBackend %q must be one of http, local, s3", s.StateBackend))
+		problems = append(problems, fmt.Sprintf("stateBackend %q must be one of local, s3", s.StateBackend))
 	}
 
 	if len(problems) > 0 {
@@ -140,6 +144,26 @@ func (s *Spec) Validate() error {
 // and a small fixed set of slots burns out faster than per-person names do.
 func (s *Spec) PhysicalName(username, env string) string {
 	return fmt.Sprintf("ws-%s-%s-%s", username, s.Name, env)
+}
+
+// NamespaceEndpoint is where a namespace answers, derived from its own id.
+//
+//	ws-me-orders-staging.acct1  ->  ws-me-orders-staging.acct1.tmprl.cloud:7233
+//
+// Temporal Cloud publishes a per-namespace endpoint alongside the regional ones,
+// and it is strictly the better address to hold: it is a pure function of the
+// namespace id, so it cannot disagree with the namespace it points at.
+//
+// The regional form -- <region>.<cloud>.api.temporal.io:7233 -- was used here
+// first, and it was a mistake worth recording. A namespace is only reachable on
+// ITS OWN region's endpoint, and the region came from the spec while the address
+// people had to hand came from the control plane's environment. When those
+// differed, Temporal answered "Request unauthorized": a routing error wearing a
+// credential error's clothes, which sends you to audit keys and service accounts
+// that are all perfectly correct. Deriving the address from the namespace makes
+// the mismatch unrepresentable.
+func NamespaceEndpoint(namespaceID string) string {
+	return namespaceID + ".tmprl.cloud:7233"
 }
 
 // Tags are the complete tag set for a namespace. temporalcloud_namespace_tags

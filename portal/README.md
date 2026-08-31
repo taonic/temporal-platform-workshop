@@ -4,14 +4,14 @@ Lab material and live checkpoints for the platform workshop. No database.
 
 ## What it can see, and what it cannot
 
-Each student's control plane runs on a Temporal dev server **inside their own
-sandbox**, and nothing central has ingress to it. The one surface every student
-shares is the Temporal Cloud account, so that is what the portal reads: namespaces,
-their **tags**, and service accounts.
+Each student's control plane runs in **their own Cloud namespace**, driven from
+their own sandbox, and nothing central has ingress to that sandbox. The one surface
+every student shares is the Temporal Cloud account, so that is what the portal
+reads: namespaces, their **tags**, and service accounts.
 
 `Namespace.tags` is a field on the Namespace message in the Ops API, which is what
-makes this work at all — and it is why the reconciler stamps `participant` and
-`drift-corrected-at` into the tag set. Drift correction is otherwise invisible from
+makes this work at all — and it is why the reconciler stamps `username`, `cohort`
+and `drift-corrected-at` into the tag set. Drift correction is otherwise invisible from
 outside a sandbox, and it is the whole point of challenge 3.
 
 Anything that exists only inside a sandbox — a pod on k3s, a secret in Vault, a
@@ -22,11 +22,11 @@ not.
 
 | Challenge | Graded here | Graded in the sandbox |
 |---|---|---|
-| 1 Spec to workflow | namespace exists, provisioner tag, api-key auth, retention | credential absent from event history |
+| 1 Bootstrap by hand | namespace exists, api-key auth, retention | credential absent from event history |
 | 2 Fan-out and identity | both environments, namespace-scoped worker identity, write not admin | Vault paths resolve |
 | 3 Invert to declarative | `drift-corrected-at` tag, retention reconverged, tag set complete | reconciler Query state |
 | 4 The paved road | the namespace is still healthy | pod ready, polling, Vault k8s auth |
-| 5 Be the developer | a second spec exists in the slot | a workflow completed, and how long it took |
+| 5 Be the developer | a second spec exists under their username | a workflow completed, and how long it took |
 
 ## Run it locally
 
@@ -40,20 +40,22 @@ pnpm dev
 hand:
 
 ```
-  Lab links - participant p-dev, slot 7
+  Lab links - dev
 
-  overview    http://localhost:3000/?k=devcode&p=p-dev&t=6e6b4ba2…&slot=7
-  lab 1       http://localhost:3000/lab/1?k=devcode&p=p-dev&t=6e6b4ba2…&slot=7
+  join        http://localhost:3000/join?k=devcode
+  overview    http://localhost:3000/?k=devcode&u=dev&t=fea3603e…
+  lab 1       http://localhost:3000/lab/1?k=devcode&u=dev&t=fea3603e…
   ...
   instructor  http://localhost:3000/instructor?t=…
 ```
 
-Override the identity with `DEV_PARTICIPANT` and `DEV_SLOT`, and the port with
-`PORT`. `pnpm link:lab` prints them again without restarting anything.
+Override the identity with `DEV_USERNAME` and the port with `PORT`. `pnpm link:lab`
+prints them again without restarting anything.
 
-The token is derived with the same HMAC the sandbox and the state service use, so a
-link printed here is the same shape a student gets — including the four values the
-pages actually require.
+Note it prints **both** paths. A real student only ever gets the `join` link — they
+pick a username there and the portal issues the personalised one. Locally there is
+usually no Authentik, so the personalised links are derived directly with the same
+HMAC the portal uses, letting you work on lab material without standing up an IdP.
 
 A `.env.local` with placeholders is already committed-adjacent (gitignored), so
 `pnpm dev` works before you have a Cloud key: **lab material renders, and only the
@@ -67,11 +69,13 @@ startup.
 | | |
 |---|---|
 | `PORTAL_LINK_CODE` | Opens the portal. Rotate to retire every link |
-| `PORTAL_SHARED_SECRET` | Derives per-participant tokens. Same value as the state service's |
-| `PORTAL_INSTRUCTOR_TOKEN` | Gates `/instructor`. Omit it and that page is unreachable |
-| `TEMPORAL_CLOUD_API_KEY` | The portal's read credential. An instructor identity, Read-Only is enough |
+| `PORTAL_SHARED_SECRET` | Derives per-student lab-page tokens |
+| `PORTAL_INSTRUCTOR_TOKEN` | Gates `/instructor`. 8 chars minimum. Omit it and that page is unreachable |
+| `TEMPORAL_CLOUD_API_KEY` | Account-owner: it reads the account **and** creates a Cloud user per student at join |
 | `PORTAL_ACCOUNT_ID` | For rendering fully qualified namespace ids |
-| `PORTAL_COHORT_SIZE` | The denominator on `/instructor` |
+| `PORTAL_COHORT_SIZE` | The registration cap, and the denominator on `/instructor` |
+| `AUTHENTIK_URL`, `AUTHENTIK_TOKEN` | The IdP. Without them `/join` cannot register anyone |
+| `WORKSHOP_DOMAIN`, `WORKSHOP_COHORT` | `<username>@<domain>`, and the tag teardown deletes by |
 | `PORTAL_SANDBOX_URL` | Shown to anyone arriving without a usable link |
 
 Missing values are reported all at once, not one per restart:
@@ -84,13 +88,15 @@ portal configuration is invalid:
 
 ## Two gates, two jobs
 
-A student's link carries four values, and the sandbox prints it for them:
+The sandbox prints a **bare join link** — it cannot print a personalised one,
+because the student has not chosen a username yet. `/join` issues the personalised
+link, which carries three values:
 
 ```bash
-P=p-abc123
-T=$(printf '%s' "$P" | openssl dgst -sha256 -hmac "$PORTAL_SHARED_SECRET" -hex \
+U=tao
+T=$(printf '%s' "$U" | openssl dgst -sha256 -hmac "$PORTAL_SHARED_SECRET" -hex \
      | awk '{print $2}' | cut -c1-40)
-echo "http://localhost:3000/lab/1?k=$PORTAL_LINK_CODE&p=$P&t=$T&slot=7"
+echo "http://localhost:3000/lab/1?k=$PORTAL_LINK_CODE&u=$U&t=$T"
 ```
 
 **`PORTAL_LINK_CODE` opens the portal.** It is a plain configured code, not a hash of
@@ -103,39 +109,134 @@ window. So expiry is an *action*, not a clock:
 fly secrets set PORTAL_LINK_CODE=<new>    # every outstanding link dies at once
 ```
 
-**`PORTAL_SHARED_SECRET` binds the identity.** Per-participant tokens are derived
-from it with the same HMAC scheme the Terraform state service uses, so one secret
-produces every token in the workshop and there is no second list to keep in sync.
+**`PORTAL_SHARED_SECRET` binds the identity.** Per-student lab-page tokens are
+derived from it rather than stored, so there is no list to keep in sync.
 
-The two are deliberately different values. That secret is shared with the state
-service, so rotating it to retire a portal link would also break the state-backend
+The two are deliberately different values, so that rotating the code to retire a
+portal link does not also invalidate a bookmark somebody is mid-lab with
 auth that fifteen sandboxes are mid-apply with. The code retires links; the secret
 binds identity; neither rotation breaks the other.
 
 Both are lab aids, not access controls. The code keeps strangers out of the portal
-and the token stops one student reading another's progress by editing a URL. Okta and
-the Cloud's own RBAC are what actually protect anything.
+and the token stops one student reading another's progress by editing a URL.
+Authentik and the Cloud's own RBAC are what actually protect anything.
 
 Deploy the code as a secret rather than plain config: six characters projected onto a
 wall are not much of a secret, but they are the only thing between a stranger and the
 portal, and a value in git is a value that outlives the workshop it was for.
 
-Instructor view: `/instructor?t=$PORTAL_INSTRUCTOR_TOKEN`. It lists every
-participant, which is why it has its own long-lived token — the student link gets
+Instructor view: `/instructor?t=$PORTAL_INSTRUCTOR_TOKEN`. It lists every student,
+which is why it has its own long-lived token — the student link gets
 pasted into chat.
 
-## Deploy
+## Deploy to Fly
+
+Stateless — everything it renders is read from the Cloud account or Authentik on
+request — so it can scale to zero and run more than one machine. There is no volume
+and no database to attach.
+
+Deploy [services/authentik](../services/authentik) **first**: two of the secrets
+below come from it, and the portal cannot register anyone without them.
 
 ```bash
+cd portal
 fly launch --no-deploy -c fly.toml
-fly secrets set TEMPORAL_CLOUD_API_KEY=... PORTAL_ACCOUNT_ID=... \
-  PORTAL_SHARED_SECRET=... PORTAL_INSTRUCTOR_TOKEN=... PORTAL_SANDBOX_URL=...
+```
+
+### Secrets
+
+Three groups, and they fail differently — which is why they are listed apart rather
+than as one `fly secrets set`.
+
+**Links and identity.** Without these no page renders:
+
+```bash
+fly secrets set --app temporal-workshop-portal \
+  PORTAL_LINK_CODE=<6+ chars, lower-case> \
+  PORTAL_SHARED_SECRET=<32+ chars; openssl rand -hex 32> \
+  PORTAL_INSTRUCTOR_TOKEN=<8+ chars; openssl rand -hex 24>
+```
+
+Rotating `PORTAL_SHARED_SECRET` invalidates every personalised lab link already
+issued. Students recover by rejoining with the same username, but it is not a
+routine action — `PORTAL_LINK_CODE` is the one to rotate between cohorts.
+
+**Reading the Cloud.** Without these, lab material still renders and only the
+checkpoints panel reports the problem — deliberate, so a broken credential is not a
+500 on every page:
+
+```bash
+fly secrets set --app temporal-workshop-portal \
+  TEMPORAL_CLOUD_API_KEY=<account-owner key> \
+  PORTAL_ACCOUNT_ID=<the 5-6 chars after the dot in a namespace id>
+```
+
+The key is **account-owner**, not read-only: the portal creates a Temporal Cloud
+user for each student at join, which is an admin operation. That is the elevated
+credential DESIGN.md's *Open risks* names explicitly — give it a short expiry so a
+forgotten deployment stops being a liability by itself.
+
+**Joining.** Without these the lab pages work and `/join` returns an error naming
+the missing variable:
+
+```bash
+fly secrets set --app temporal-workshop-portal \
+  AUTHENTIK_URL=https://temporal-workshop-authentik.fly.dev \
+  AUTHENTIK_TOKEN=<an API-intent token; see services/authentik/README.md> \
+  WORKSHOP_DOMAIN=temporal.workshop \
+  WORKSHOP_COHORT=<e.g. 2026-03-melbourne> \
+  PORTAL_COHORT_SIZE=15 \
+  PORTAL_SANDBOX_URL=<the Instruqt invite link>
+```
+
+`WORKSHOP_COHORT` tags every namespace the cohort creates and is what
+`scripts/workshop-teardown` deletes by — so change it per cohort, or teardown takes
+the previous one with it.
+
+`PORTAL_COHORT_SIZE` is the registration cap, and it is a namespace budget rather
+than a room size: 15 students at a peak of 3 namespaces each is 45 of 50. Raising it
+without raising the quota moves the failure from a legible "the workshop is full"
+screen at join to a Cloud quota error mid-challenge, landing on whoever applies next.
+
+### Deploy and verify
+
+```bash
 fly deploy
 curl -s https://temporal-workshop-portal.fly.dev/healthz
 ```
 
-Stateless, so unlike the state service this one can scale to zero and run more than
-one machine.
+`/healthz` is an authenticated Cloud read, not a liveness ping — you want to learn
+the credential is broken at 09:00, not at 15:30 when every student's checkpoints go
+red at once.
+
+Then walk the two paths a student takes:
+
+```bash
+open "https://temporal-workshop-portal.fly.dev/join?k=$PORTAL_LINK_CODE"
+```
+
+Join as a throwaway username. You should get a password, a
+`workshop init --username …` line, and a personalised lab
+link. If `/join` errors, the message names the cause — a 403 from Authentik means
+the token's user lacks permissions, which is the most common one.
+
+Delete the throwaway afterwards, or it counts against `PORTAL_COHORT_SIZE`:
+
+```bash
+../scripts/workshop-teardown <cohort> --confirm
+```
+
+### Rotating between cohorts
+
+```bash
+fly secrets set --app temporal-workshop-portal \
+  PORTAL_LINK_CODE=<new> WORKSHOP_COHORT=<new>
+```
+
+The link code retires every outstanding link at once; the cohort tag scopes the next
+teardown. Neither touches `PORTAL_SHARED_SECRET`, which is the point of keeping them
+separate — rotating that would invalidate the personalised lab link every student is
+working from.
 
 ## Snippets are the answer key
 
@@ -167,11 +268,11 @@ the guarantee comes from round-tripping them:
 ```bash
 pnpm snippets:check                # every claim and grade resolves
 pnpm snippets:emit --out ..        # writes each snippet to its real path
-make verify                        # from the repo root: check, emit, build, test, restore
+./scripts/workshop verify                        # from the repo root: check, emit, build, test, restore
 ```
 
-`make verify` is what CI runs. A provider bump or a changed Go signature therefore
-breaks the build rather than a student's paste.
+`./scripts/workshop verify` is what CI runs. A provider bump or a changed Go
+signature therefore breaks the build rather than a student's paste.
 
 Highlighting is Shiki, in a server component, with dual themes emitted as CSS
 variables — so it runs at request time on the server and ships no JavaScript. Five

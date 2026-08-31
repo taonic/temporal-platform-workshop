@@ -38,12 +38,79 @@ do
     if $cmd > /dev/null 2>&1; then ok "$name"; else bad "$name"; fi
 done
 
+# tpctl is not in the loop above because a missing one is almost never a missing
+# binary. It is `bin/` not being on PATH, which means the env file was not sourced
+# in this shell -- and `zsh: command not found: tpctl` says nothing at all about
+# that. Every lab from challenge 2 onward types `tpctl`, so the failure is common
+# and the message it produces is useless.
+if command -v tpctl > /dev/null 2>&1; then
+    ok "tpctl ($(command -v tpctl))"
+elif [ -x "$REPO/bin/tpctl" ]; then
+    bad "tpctl is built but not on PATH -- this shell has not sourced the env file"
+    echo "        source \"\$($REPO/scripts/workshop env-file)\""
+else
+    bad "tpctl is not built -- run: ./scripts/workshop build"
+fi
+
+# Optional on purpose, so it warns rather than fails: nothing in the workshop
+# needs k9s, and a laptop without it is not broken. The labs point at it because
+# "look at what the platform built" is a much better instruction when there is
+# something to look with.
+if k9s version > /dev/null 2>&1; then
+    ok "k9s"
+else
+    warn "k9s not installed -- optional. It is how the labs suggest inspecting the cluster."
+    echo "        macOS: brew install k9s"
+fi
+
 echo
 echo "Cluster"
 # k3s in the sandbox, k3d or Docker Desktop on a laptop -- rule 8. Any of them
 # is fine; none of them is not.
 if kubectl get nodes > /dev/null 2>&1; then
     ok "kubernetes reachable ($(kubectl config current-context 2>/dev/null))"
+
+    # Can this cluster actually see an image built by `docker build`?
+    #
+    # Every cluster answers differently, and getting it wrong does not fail here:
+    # it fails forty seconds into `platform-up` as ImagePullBackOff, whose message
+    # is "pull access denied ... docker.io/library/platform-worker:dev" -- which
+    # reads as a registry-auth problem rather than a cluster one, and sends
+    # someone looking for credentials that were never involved.
+    #
+    # The discriminator that matters is Docker Desktop's, because the context is
+    # called docker-desktop either way:
+    #
+    #   node "docker-desktop"          kubeadm-provisioned, shares the daemon
+    #   node "desktop-control-plane"   kind-provisioned, own containerd, shares
+    #                                  nothing -- and its node is inside the
+    #                                  Docker Desktop VM, so there is no
+    #                                  `docker exec ... ctr images import` route
+    #                                  and no `kind load` route either.
+    #
+    # Keep this in step with import_image() in deploy/platform/up.sh, which makes
+    # the same distinction to decide what to do about it.
+    ctx="$(kubectl config current-context 2>/dev/null)"
+    node="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+    if command -v k3d > /dev/null 2>&1 && k3d cluster list 2>/dev/null | grep -q platform; then
+        ok "image delivery: k3d cluster 'platform' (k3d image import)"
+    elif [ "$ctx" = "docker-desktop" ] && [ "$node" != "docker-desktop" ]; then
+        bad "image delivery: this Docker Desktop cluster cannot see locally built images"
+        echo "        Node \"$node\" is kind-provisioned with its own containerd, so"
+        echo "        \`docker build\` output never reaches the kubelet and platform-up"
+        echo "        ends in ImagePullBackOff. Two ways out:"
+        echo "          1. k3d (what this repo is built around):"
+        echo "               brew install k3d"
+        echo "               k3d cluster create platform -p \"30820:30820@server:0\""
+        echo "          2. Docker Desktop -> Settings -> Kubernetes, switch the cluster"
+        echo "             provisioning method back to kubeadm, which does share the daemon."
+    elif [ "$ctx" = "docker-desktop" ]; then
+        ok "image delivery: Docker Desktop shares the daemon (nothing to import)"
+    else
+        ok "image delivery: k3s (ctr images import)"
+        command -v k3d > /dev/null 2>&1 \
+            || warn "k3d not installed -- fine on k3s; needed if you rebuild the cluster on a Mac"
+    fi
     if kubectl get namespace platform > /dev/null 2>&1; then
         ok "namespace/platform"
     else
@@ -52,6 +119,20 @@ if kubectl get nodes > /dev/null 2>&1; then
     if kubectl -n platform get deploy vault > /dev/null 2>&1; then
         ready=$(kubectl -n platform get deploy vault -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
         [ "${ready:-0}" -ge 1 ] 2>/dev/null && ok "deploy/vault ready" || bad "deploy/vault not ready"
+        # Vault validates a pod's ServiceAccount token through the TokenReview
+        # API, which Kubernetes refuses without system:auth-delegator. A missing
+        # binding is silent here and surfaces inside the worker as a bare
+        # "403 permission denied" from Vault -- a Kubernetes RBAC problem wearing
+        # a Vault error message, which sends people to audit Vault roles that are
+        # already correct.
+        if kubectl get clusterrolebinding vault-auth-delegator > /dev/null 2>&1; then
+            ok "vault can call TokenReview (system:auth-delegator bound)"
+        else
+            bad "clusterrolebinding/vault-auth-delegator missing -- kubernetes auth will 403"
+            echo "        The worker will fail with: vault kubernetes login as role"
+            echo "        \"platform-worker\": 403 Forbidden: permission denied"
+            echo "        Fix: kubectl apply -f deploy/platform/vault.yaml"
+        fi
     else
         warn "deploy/vault absent -- run: make base-up"
     fi
@@ -61,7 +142,7 @@ if kubectl get nodes > /dev/null 2>&1; then
             && ok "deploy/platform-worker ready" \
             || bad "deploy/platform-worker not ready -- kubectl -n platform logs deploy/platform-worker"
     else
-        warn "deploy/platform-worker absent -- challenge 1 step 4 creates it"
+        warn "deploy/platform-worker absent -- challenge 2 deploys it, with: workshop platform-up"
     fi
 else
     bad "no reachable cluster"
@@ -75,10 +156,31 @@ echo "Vault"
 # dead port-forward rather than a dead Vault.
 if curl -fsS -m 3 -o /dev/null "$VAULT_ADDR/v1/sys/health?standbyok=true" 2>/dev/null; then
     ok "reachable at $VAULT_ADDR"
+
+    # Reachability is not identity. A kubectl port-forward left over from another
+    # cluster answers on this port exactly like the real NodePort -- and then every
+    # vault command here inspects the WRONG Vault, while the worker, which talks to
+    # vault.platform.svc inside the cluster, uses the right one. The visible symptom
+    # is the worker failing kubernetes login with "permission denied" against a role
+    # you can read on screen, because the role is in the other Vault.
+    cid() { python3 -c 'import json,sys; print(json.load(sys.stdin).get("cluster_id",""))' 2>/dev/null; }
+    outside=$(vault status -format=json 2>/dev/null | cid)
+    inside=$(kubectl -n platform exec deploy/vault -- sh -c \
+        'VAULT_ADDR=http://127.0.0.1:8200 vault status -format=json' 2>/dev/null | cid)
+    if [ -n "$outside" ] && [ -n "$inside" ] && [ "$outside" != "$inside" ]; then
+        bad "$VAULT_ADDR is a DIFFERENT Vault than the one in this cluster"
+        echo "        host sees:    $outside"
+        echo "        cluster runs: $inside"
+        echo "        Almost always a stale port-forward from another cluster:"
+        echo "          pkill -f 'port-forward.*svc/vault'"
+    elif [ -n "$outside" ] && [ "$outside" = "$inside" ]; then
+        ok "and it is this cluster's Vault"
+    fi
+
     if vault kv get -field=api_key secret/platform/cloud-api-key > /dev/null 2>&1; then
         ok "platform cloud api key present"
     else
-        bad "no key at secret/platform/cloud-api-key -- TEMPORAL_CLOUD_API_KEY=<key> make base-up"
+        bad "no key at secret/platform/cloud-api-key -- run: ./scripts/workshop base-up"
     fi
 else
     bad "not reachable at $VAULT_ADDR -- try: make vault-forward"
@@ -95,24 +197,31 @@ probe_net us-west-2.aws.api.temporal.io:7233
 probe_net saas-api.tmprl.cloud:443
 probe_net registry.terraform.io:443
 probe_net github.com:443
-[ -n "${STATE_SERVICE_URL:-}" ] && {
-    curl -fsS -m 5 -o /dev/null "$STATE_SERVICE_URL/healthz" 2>/dev/null \
-        && ok "state service $STATE_SERVICE_URL" \
-        || bad "state service $STATE_SERVICE_URL/healthz"
-}
 
 echo
 echo "Control plane"
-if [ -z "${CONTROL_NAMESPACE:-}" ]; then
-    warn "CONTROL_NAMESPACE unset -- challenge 1 sets it (workshop-creds control)"
+# Same source as platform-up: Terraform made the namespace, so Terraform is what
+# knows its name. An exported CONTROL_NAMESPACE still wins, because that is the
+# override platform-up honours too -- checking something other than what would
+# actually be deployed would be worse than not checking at all.
+control_ns="${CONTROL_NAMESPACE:-}"
+if [ -z "$control_ns" ] && [ -f "$REPO/terraform/namespace/terraform.tfstate" ]; then
+    control_ns="$(cd "$REPO/terraform/namespace" \
+        && terraform output -raw namespace_id 2>/dev/null)" || control_ns=""
+    case "$control_ns" in *[!a-zA-Z0-9.-]*) control_ns="" ;; esac
+fi
+
+if [ -z "$control_ns" ]; then
+    warn "no control namespace yet -- challenge 1's terraform apply creates it"
+    echo "        platform-up reads the name from terraform output -raw namespace_id."
 else
-    key="$("$HERE/workshop-creds" exec -- sh -c 'printf %s "$TEMPORAL_API_KEY"' 2>/dev/null </dev/null)"
+    key="$("$HERE/workshop" exec -- sh -c 'printf %s "$TEMPORAL_API_KEY"' 2>/dev/null </dev/null)"
     if [ -z "$key" ]; then
-        warn "no key to check $CONTROL_NAMESPACE with -- see Vault above"
+        warn "no key to check $control_ns with -- see Vault above"
     elif temporal cloud namespace list --api-key "$key" 2>/dev/null \
-         | grep -q -- "${CONTROL_NAMESPACE%%.*}"; then
-        ok "$CONTROL_NAMESPACE exists"
-        if temporal workflow list --limit 1 --namespace "$CONTROL_NAMESPACE" \
+         | grep -q -- "${control_ns%%.*}"; then
+        ok "$control_ns exists"
+        if temporal workflow list --limit 1 --namespace "$control_ns" \
              --address "${TEMPORAL_ADDRESS:-us-west-2.aws.api.temporal.io:7233}" \
              --api-key "$key" > /dev/null 2>&1; then
             ok "reachable at ${TEMPORAL_ADDRESS:-us-west-2.aws.api.temporal.io:7233}"
@@ -120,7 +229,7 @@ else
             bad "cannot reach it -- wrong address, or API key auth not enabled on the namespace"
         fi
     else
-        warn "$CONTROL_NAMESPACE does not exist yet -- challenge 1's terraform apply creates it"
+        warn "$control_ns does not exist yet -- challenge 1's terraform apply creates it"
     fi
 fi
 

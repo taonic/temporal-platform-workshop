@@ -25,6 +25,8 @@ export function snippetContext(username: string, spec?: string): SnippetContext 
     username,
     spec,
     accountId: cfg.PORTAL_ACCOUNT_ID,
+    cohort: cfg.WORKSHOP_COHORT,
+    region: cfg.WORKSHOP_CONTROL_REGION,
     namespacePattern: `ws-${username}-${name}-<environment>`,
     stagingSuffix: `ws-${username}-${name}-staging`,
     prodSuffix: `ws-${username}-${name}-prod`,

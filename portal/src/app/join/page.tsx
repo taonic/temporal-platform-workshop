@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { config } from '@/config';
 import { verifyCode } from '@/lib/link';
 import { JoinForm } from './JoinForm';
 
@@ -48,7 +49,15 @@ export default async function JoinPage({
         </div>
       </header>
       <main className="wrap stack-lg">
-        <JoinForm code={code} />
+        {/* Server config, read here and handed down rather than exposed to the
+            client as env vars. */}
+        <JoinForm
+          code={code}
+          domain={config().WORKSHOP_DOMAIN}
+          loginUrl={config().PORTAL_CLOUD_LOGIN_URL}
+          cohort={config().WORKSHOP_COHORT}
+          region={config().WORKSHOP_CONTROL_REGION}
+        />
       </main>
     </>
   );

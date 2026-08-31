@@ -1,7 +1,9 @@
 import { lab } from '@/course';
 import { parsePhysicalName, snippetContext } from '@/course/naming';
+import { DEFAULT_SPEC, GREETING_WORKFLOW } from '@/course/spec-name';
 import type { CheckpointResult, CheckpointStatus, GradeContext, GradeResult } from '@/course/types';
 import { readInventory, type CloudNamespace } from '@/platform/cloud';
+import { completedRun, physicalNamespace, queryReconciler } from '@/platform/reconciler';
 
 /**
  * Grade one lab for one student.
@@ -15,6 +17,26 @@ export async function gradeLab(n: number, username: string): Promise<GradeResult
   if (!def) throw new Error(`unknown lab ${n}`);
 
   const inventory = await readInventory();
+
+  // Always the spec the labs prescribe.
+  //
+  // The earlier version guessed -- namespace tags first, then parsing a physical
+  // name -- and both guesses were wrong in practice. Nothing writes the `spec`
+  // tag any more, and parsing picks whichever namespace the inventory happens to
+  // return first, which on a machine with more than one spec is a coin toss. A
+  // grader that reports on a different spec than the lab told you to make is
+  // worse than one that reports nothing.
+  const reconciler = await queryReconciler(username, DEFAULT_SPEC);
+
+  // Only for a lab that asks for it. This one dials the student's OWN namespace
+  // rather than the control plane's, and labs 1-3 have no question that needs
+  // the trip.
+  const greetingRan = def.checkpoints.some((c) => c.id === 'greeting-workflow-ran')
+    ? await completedRun(
+        physicalNamespace(username, DEFAULT_SPEC, 'staging'),
+        GREETING_WORKFLOW,
+      )
+    : undefined;
 
   // Namespaces belonging to this student. Tag first, name second: the tag is
   // authoritative, and the name check catches one made before the tag existed.
@@ -30,6 +52,12 @@ export async function gradeLab(n: number, username: string): Promise<GradeResult
         parsePhysicalName(ns.spec.name ?? '', username)?.environment === environment,
     );
 
+  // By exact name, from the whole inventory rather than from `mine`: the control
+  // namespace predates the reconciler that would have tagged it.
+  const controlName = `ws-${username}-control`;
+  const control = () =>
+    inventory.namespaces.find((ns) => ns.spec.name === controlName);
+
   const defs = new Map(def.checkpoints.map((c) => [c.id, c]));
   const build = (id: string, status: CheckpointStatus, observed?: string): CheckpointResult => {
     const d = defs.get(id);
@@ -41,7 +69,10 @@ export async function gradeLab(n: number, username: string): Promise<GradeResult
     ...snippetContext(username),
     mine: () => mine,
     env: byEnv,
+    control,
     serviceAccounts: () => inventory.serviceAccounts,
+    reconciler: () => reconciler,
+    greetingRan: () => greetingRan,
     mk: build,
     check: (id, ok, onPass, onFail) => build(id, ok ? 'pass' : 'fail', ok ? onPass : onFail),
     // A self-attested checkpoint always reads as passing and is never counted as

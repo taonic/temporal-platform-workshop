@@ -1,25 +1,28 @@
 name: Temporal Platform Workshop
 slug: temporal-platform-workshop
 description: >-
-  Five-challenge platform-engineering sandbox: Go toolchain, uv + Python 3.12,
-  Terraform with a warm temporalcloud provider cache, Vault, k3s (installed, not
-  started), the managed worker image pre-built and pre-imported, and the platform
-  control plane running against a dev server.
+  Four-challenge platform-engineering sandbox: Go toolchain, uv + Python 3.12,
+  Terraform with a warm temporalcloud provider cache, the Vault CLI, k3s running
+  with the control plane, managed worker and Vault images already in its store,
+  code-server for the Editor tab, and nothing else started -- the student's own
+  Terraform makes the namespace their control plane runs on.
 
 virtualmachines:
   - name: platform-workshop
     image: instruqt/docker-28-3
     shell: /bin/bash
-    # A Go build, a uv sync, a Docker daemon, k3s, Vault, a Temporal dev server and
-    # the platform worker all run at once. n1-standard-1 does not carry it.
+    # A Go build, a uv sync, a Docker daemon, k3s, code-server and -- from
+    # challenge 2 -- the control plane's own pod all run at once.
+    # n1-standard-1 does not carry it.
     machine_type: n1-standard-4
     memory: 16384
     cpus: 4
+    # high-ports is not optional: the Editor tab is a service on 8443, and the
+    # Vault the cluster runs answers on NodePort 30820.
     allow_external_ingress:
       - http
       - https
       - high-ports
-    # k3s wants it, and challenge 4 is the whole reason k3s is here.
     nested_virtualization: true
     provision_ssl_certificate: true
 
@@ -28,18 +31,16 @@ virtualmachines:
       LAB_REPO_REF: main
       WORKSHOP_DIR: /workspace/platform
 
-      # Where the platform's Terraform state lives. The local backend is the
-      # fallback when this is unreachable -- see stateBackend in the spec.
-      STATE_SERVICE_URL: https://temporal-workshop-tfstate.fly.dev
-
-      # Lab material and live checkpoints. The setup script prints a per-student
-      # link with the participant, view token and leased slot already in it.
+      # Lab material and live checkpoints. The prebuild prints the BARE join link
+      # -- it cannot personalise one, because the student has not chosen a
+      # username yet. They pick it at the portal and bookmark what it hands back.
       PORTAL_URL: https://temporal-workshop-portal.fly.dev
 
-      # Dev-mode Vault for challenges 1 to 3. Challenge 4 switches the worker to
-      # Kubernetes auth, which is the point of that challenge.
-      # Vault is a pod on k3s here, reachable through the NodePort in
-      # deploy/platform/vault.yaml. Nothing listens on 8200 on the host.
+      # Vault is a pod on k3s, reachable through the NodePort in
+      # deploy/platform/vault.yaml. Nothing listens on 8200 on the host, and no
+      # Vault is running at all until `workshop init --api-key` brings one up:
+      # it runs in dev mode, so a Vault seeded during the prebuild would lose
+      # everything when this image is snapshotted and booted.
       VAULT_ADDR: http://127.0.0.1:30820
       VAULT_DEV_ROOT_TOKEN_ID: workshop-root
 
@@ -48,9 +49,9 @@ virtualmachines:
       WORKSHOP_STRICT_EGRESS: "1"
 
     # Set as Instruqt secrets, never here:
-    #   TEMPORAL_CLOUD_API_KEY   the platform's Developer-role service account key
-    #   STATE_SHARED_SECRET      per-participant state tokens are derived from it
     #   PORTAL_LINK_CODE         opens the portal. Rotate it after a cohort and every
-    #                            outstanding link dies at once -- which is exactly why
-    #                            it is not the same value as STATE_SHARED_SECRET:
-    #                            rotating that would break state auth mid-workshop
+    #                            outstanding link dies at once
+    #
+    # NOT here and not a secret: the platform's Cloud API key. Each student creates
+    # their own service account in challenge 1 and seeds its key with
+    # `workshop init --api-key`, so provisioning never holds one.

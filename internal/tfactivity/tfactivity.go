@@ -14,7 +14,12 @@ import (
 	"github.com/taonic/temporal-platform-workshop/internal/tfworkspace"
 )
 
-const heartbeatInterval = 10 * time.Second
+// Ticking twice as often as the worker's heartbeat throttle cap (10s, set in
+// cmd/platform-worker/main.go). The throttle is a MINIMUM interval between sends,
+// so ticking at exactly the cap lets ordinary jitter push a send into the next
+// tick and double the real gap. Ticking under it means a send goes out every cap
+// interval, reliably.
+const heartbeatInterval = 5 * time.Second
 
 type Activity struct {
 	cfg tfworkspace.Config

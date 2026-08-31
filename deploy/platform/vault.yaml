@@ -15,6 +15,34 @@ metadata:
   name: vault
   namespace: platform
 ---
+# Vault's Kubernetes auth method validates a pod's ServiceAccount token by calling
+# the Kubernetes TokenReview API, and Kubernetes refuses that call from an identity
+# without system:auth-delegator. Vault running in a pod uses its OWN service
+# account for the review by default (disable_local_ca_jwt is false), so this
+# binding is what the review is actually made as.
+#
+# Missing it does not fail at bring-up, when it would be obvious. It fails later,
+# inside the worker, as:
+#
+#   vault kubernetes login as role "platform-worker":
+#     POST .../v1/auth/kubernetes/login: 403 Forbidden: permission denied
+#
+# which reads as a Vault policy or role problem and sends you into `vault read
+# auth/kubernetes/role/platform-worker`, where everything is correct. It is a
+# Kubernetes RBAC problem wearing a Vault error message.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: platform
+---
 apiVersion: v1
 kind: Service
 metadata:

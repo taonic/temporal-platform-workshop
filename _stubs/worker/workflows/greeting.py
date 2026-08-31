@@ -24,7 +24,7 @@
 #                                to update — the decorator IS the declaration
 #   no API key                   the platform minted one and put it in Vault
 #   no client construction       platform_sdk/main.py connects
-#   no Dockerfile, no manifest   nsctl generates both from what you declared here
+#   no Dockerfile, no manifest   tpctl generates both from what you declared here
 #
 # That list is the paved road. The measure of it is time-to-first-workflow, and
 # challenge 5 puts a stopwatch on writing a file exactly like this one.
@@ -49,7 +49,7 @@
 #
 # Then generate and inspect what the platform made of it:
 #
-#   nsctl worker gen-config --out generated/worker-config.json
+#   tpctl worker gen-config --out worker-config.json
 # ============================================================================
 
 from __future__ import annotations

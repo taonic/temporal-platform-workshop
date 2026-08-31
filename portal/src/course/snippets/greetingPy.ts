@@ -1,5 +1,5 @@
 // GENERATED from the reference solution. Do not hand-edit the code below --
-// `pnpm snippets:emit` writes it back to worker/workflows/greeting.py and `make verify` compiles it
+// `pnpm snippets:emit` writes it back to worker/workflows/greeting.py and `./scripts/workshop verify` compiles it
 // there, so a drifted copy fails CI rather than a student's paste.
 //
 // The spec name is interpolated: the decorator's namespace has to match the

@@ -27,11 +27,10 @@ import { config } from '@/config';
  * for.
  *
  * Why this is separate from PORTAL_SHARED_SECRET, which is the more interesting
- * question here: that secret is deliberately the same value the Terraform state
- * service uses, so that one HMAC scheme produces every per-participant token in
- * the workshop. Rotating it to retire portal links would therefore also break
- * every student's state backend auth mid-workshop. Two values, two jobs: the code
- * retires links, the secret binds identity, and neither rotation breaks the other.
+ * question here: that secret derives every per-participant lab-page token, so
+ * rotating it to retire portal links would also invalidate the personalised link
+ * every student is working from. Two values, two jobs: the code retires links, the
+ * secret binds identity, and neither rotation breaks the other.
  *
  * This gates who may OPEN the portal. It is not on its own an access control --
  * the per-participant token is what stops one student reading another's progress,

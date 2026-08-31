@@ -10,7 +10,7 @@ func valid() Spec {
 	return Spec{
 		Name: "orders", Owner: "payments-team", Tier: TierStandard,
 		RetentionDays: 7, Region: "aws-us-east-1",
-		Environments: []string{EnvStaging, EnvProd}, StateBackend: BackendHTTP,
+		Environments: []string{EnvStaging, EnvProd}, StateBackend: BackendLocal,
 	}
 }
 
@@ -112,5 +112,23 @@ func TestPhysicalNameFitsCloudsLimit(t *testing.T) {
 	longest := s.PhysicalName("bbbbbbbbbbbbbb", EnvStaging) // 14, the maximum a username may be
 	if len(longest) > 39 {
 		t.Fatalf("longest possible namespace name is %d characters, Cloud allows 39: %s", len(longest), longest)
+	}
+}
+
+// The endpoint must be derivable from the namespace alone.
+//
+// It used to be derived from the spec's REGION, and the two sources drifted: a
+// namespace in one region, an address taken from the control plane's environment
+// in another, and Temporal answering "Request unauthorized" -- which reads as a
+// credential problem and is a routing one. A per-namespace endpoint cannot drift
+// from the namespace it addresses.
+func TestNamespaceEndpoint(t *testing.T) {
+	for id, want := range map[string]string{
+		"ws-me-orders-staging.acct1": "ws-me-orders-staging.acct1.tmprl.cloud:7233",
+		"ws-me-control.bvmon":        "ws-me-control.bvmon.tmprl.cloud:7233",
+	} {
+		if got := NamespaceEndpoint(id); got != want {
+			t.Errorf("%s: got %q, want %q", id, got, want)
+		}
 	}
 }

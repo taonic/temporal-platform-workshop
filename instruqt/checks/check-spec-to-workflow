@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Graded against the Cloud Ops API, not against files on disk: what matters is
+# that a namespace really exists, with the retention the spec asked for.
+set -uo pipefail
+# shellcheck disable=SC1091
+source /etc/workshop/env
+# The graders read the student's own checkout -- specs/, terraform/ and the
+# scripts below are all relative to it -- and Instruqt runs a check script from
+# wherever it likes. Without this, every one of them fails at `ls specs/*.yaml`
+# with "no such file or directory", which reads as "you never wrote a spec".
+cd "${WORKSHOP_DIR:-/workspace/platform}" || exit 1
+
+# `temporal cloud` needs the platform's key, and the key is in Vault rather than
+# in any environment. `workshop exec` is the one thing that bridges that: it puts
+# the key in the environment of a single command and lets it die there, and fills
+# in the Cloud address the CLI needs to go with it.
+tc() { ./scripts/workshop exec -- temporal "$@"; }
+
+fail() { echo "$1" >&2; exit 1; }
+
+SPEC=$(ls specs/*.yaml 2>/dev/null | grep -v '_example' | head -1)
+[ -n "$SPEC" ] || fail "No spec in specs/. Run: tpctl new"
+
+NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
+RETENTION=$(grep '^retentionDays:' "$SPEC" | awk '{print $2}')
+NS="ws-${WORKSHOP_USERNAME}-${NAME}-staging"
+
+# The Ops API is the source of truth. A file on disk proves intent, not outcome.
+OUT=$(tc cloud namespace get --name "$NS" -o json 2>/dev/null) \
+  || fail "Namespace $NS does not exist yet. Did 'tpctl apply' complete?"
+
+ACTUAL=$(echo "$OUT" | jq -r '.namespace.spec.retentionDays // empty')
+[ "$ACTUAL" = "$RETENTION" ] \
+  || fail "Namespace $NS has retention ${ACTUAL}d but your spec asks for ${RETENTION}d"
+
+# The rule that matters most in this challenge: no credential in event history.
+if tc workflow show -w "provision-${NAME}" -o json 2>/dev/null | grep -qE '"api_key"\s*:\s*"[^"]+"'; then
+  fail "A credential appears in the workflow history. The mint activity must return a Vault path, never a token."
+fi
+
+echo "ok: $NS exists with ${RETENTION}d retention, and no credential reached the event history"

@@ -22,13 +22,13 @@ export default async function Home({
     return Array.isArray(v) ? v[0] : v;
   };
   const code = one('k') ?? '';
-  // The code opens the portal; the participant token binds the identity. A link
-  // from the sandbox carries both, so neither costs a student anything.
+  // The code opens the portal; the token binds the identity. The sandbox prints
+  // only the code -- a student has not chosen a username yet -- so arriving here
+  // without an identity is the NORMAL first visit, and /join is where it leads.
   const opened = verifyCode(code);
-  const participant = one('p') ?? '';
+  const username = one('u') ?? one('p') ?? '';
   const token = one('t') ?? '';
-  const slot = one('slot') ?? '';
-  const known = opened && Boolean(participant && token && slot);
+  const known = opened && Boolean(username && token);
 
   const sandbox = (() => {
     try {
@@ -39,8 +39,8 @@ export default async function Home({
   })();
 
   const qs = known
-    ? `?k=${encodeURIComponent(code)}&p=${encodeURIComponent(participant)}` +
-      `&t=${encodeURIComponent(token)}&slot=${encodeURIComponent(slot)}`
+    ? `?k=${encodeURIComponent(code)}&u=${encodeURIComponent(username)}` +
+      `&t=${encodeURIComponent(token)}`
     : '';
 
   return (
@@ -74,11 +74,21 @@ export default async function Home({
         )}
 
         {opened && !known && (
-          <div className="notice">
-            The code is right, but this link is missing your participant id, view token and leased
-            slot. Your sandbox printed a link with all four — check its setup output, or run{' '}
-            <code>echo $PORTAL_LINK</code> in the sandbox terminal.
-          </div>
+          <section className="card stack">
+            <h2>Start here</h2>
+            <p className="expect">
+              Pick a username and the workshop is yours. Everything the platform builds is named
+              after it — your namespaces, your Vault paths, your state files — so choose something
+              you will recognise on a list.
+            </p>
+            <p>
+              <a href={`/join?k=${encodeURIComponent(code)}`}>Join the workshop →</a>
+            </p>
+            <p className="expect">
+              Been here before? Go to the same page and type the same username: that returns your
+              account and a fresh password, rather than refusing it.
+            </p>
+          </section>
         )}
 
         <section className="stack">
@@ -118,9 +128,9 @@ export default async function Home({
           <p className="expect">
             Your reconciler writes progress into namespace tags for exactly this reason. It is also
             why a few checkpoints are marked <strong>self-attested</strong>: a pod on k3s and a
-            secret in Vault exist only in your sandbox. Those are graded by the Instruqt check for
-            that challenge, which runs inside it. A grader that implied it had verified them would
-            be worse than one that admits it did not.
+            secret in Vault exist only in your sandbox. Those are graded by the check scripts in{' '}
+            <code>instruqt/checks/</code>, which run inside it. A grader that implied it had
+            verified them would be worse than one that admits it did not.
           </p>
         </section>
       </main>

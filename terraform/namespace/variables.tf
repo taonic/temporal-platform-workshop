@@ -13,7 +13,11 @@ variable "retention_days" {
   type        = number
 }
 
-variable "tags" {
-  description = "Complete tag set for the namespace. This resource manages the whole set, so the reconciler always sends every tag it wants."
-  type        = map(string)
-}
+# No "tags" variable. There used to be one, feeding a temporalcloud_namespace_tags
+# resource, and both are gone: UpdateNamespaceTags is granted to Account Owner and
+# Global Admin only, and the reconciler runs as a Developer service account on
+# purpose. See DESIGN.md rule 3.
+#
+# It outlived the resource it fed, which is worse than useless -- a required
+# variable with no default and no consumer fails every apply with
+# "No value for required variable", pointing at a line that explains nothing.

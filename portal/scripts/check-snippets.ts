@@ -19,6 +19,8 @@ import type { SnippetContext } from '../src/course/types';
 const ctx: SnippetContext = {
   username: 'example',
   accountId: 'acct1',
+  cohort: 'local',
+  region: 'aws-ap-southeast-2',
   namespacePattern: 'ws-7-orders-<environment>',
   stagingSuffix: 'ws-7-orders-staging',
   prodSuffix: 'ws-7-orders-prod',
@@ -62,8 +64,12 @@ for (const lab of LABS) {
   // Not a failure: an unclaimed snippet still renders after the step list. Worth
   // reporting, because "I put it inline" and "it fell to the bottom" look the same
   // until you load the page.
-  for (const key of keys) {
-    if (!claimed.has(key)) {
+  //
+  // `hidden` snippets are exempt -- they are emitted for `verify` and rendered
+  // nowhere, so being unclaimed is the whole point rather than an oversight.
+  for (const sn of snippets) {
+    const key = snippetKey(sn);
+    if (!sn.hidden && !claimed.has(key)) {
       console.log(`  note: lab ${lab.number} snippet "${key}" is unclaimed and renders after the steps`);
     }
   }

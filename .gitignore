@@ -17,6 +17,12 @@ worker/.venv/
 # Local platform state
 /.platform-state/
 /generated/
+
+# The worker config is generated from the decorators on every gen-config, and it
+# now lives beside the code it describes rather than in a top-level generated/.
+# Committing it would create a second source of truth for "which queue does this
+# worker poll" -- the exact thing generating it was meant to prevent.
+/worker/worker-config.json
 .env
 .env.local
 .env*.local
@@ -29,3 +35,5 @@ node_modules/
 
 # tsc incremental cache
 *.tsbuildinfo
+**/saml.crt
+**/saml.key

@@ -1,5 +1,5 @@
 // GENERATED from the reference solution. Do not hand-edit the code below --
-// `pnpm snippets:emit` writes it back to terraform/namespace/main.tf and `make verify` compiles it
+// `pnpm snippets:emit` writes it back to terraform/namespace/main.tf and `./scripts/workshop verify` compiles it
 // there, so a drifted copy fails CI rather than a student's paste.
 export const NAMESPACE_MAIN_TF = `# One physical namespace, and the identity its workers run as.
 #
@@ -30,10 +30,5 @@ resource "temporalcloud_service_account" "worker" {
     namespace_id = temporalcloud_namespace.ns.id
     permission   = "write"
   }
-}
-
-resource "temporalcloud_namespace_tags" "tags" {
-  namespace_id = temporalcloud_namespace.ns.id
-  tags         = var.tags
 }
 `;

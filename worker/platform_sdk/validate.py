@@ -30,7 +30,7 @@ def check(config: WorkerConfig, registry: Registry) -> None:
     for name, queue in sorted(declared - configured):
         problems.append(
             f"workflow {name!r} on queue {queue!r} is declared in code but missing from the config. "
-            f"Regenerate it: nsctl worker gen-config"
+            f"Regenerate it: tpctl worker gen-config"
         )
 
     declared_acts = {(a.name, a.task_queue) for a in registry.activities}

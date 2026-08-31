@@ -16,7 +16,7 @@ you want to know *why* rather than *what*.
 ## Layout
 
 ```
-cmd/nsctl/            the front door: wizard, apply, sync, status, worker, slot, reap
+cmd/tpctl/            the front door: wizard, apply, sync, status, worker, slot, reap
 cmd/platform-worker/  the control plane: hosts the reconciler and the activities
 internal/platform/    workflows and activities -- the reconciler lives here
 internal/tfexec/      terraform subprocess, pluggable state backend, no locking
@@ -29,8 +29,8 @@ terraform/namespace/  the module. Note what is absent: the API key
 worker/               the managed worker (Python) -- product-side code
 schema/               worker config JSON Schema, validated by both languages
 specs/                desired state. Committing here is how you ask for something
-services/state/       terraform http state backend, deliberately lock-free (see its README)
-instruqt/             sandbox prebuild and the five challenges
+instruqt/             sandbox prebuild, and the check scripts that grade from inside it
+                      (instruqt/README.md: what to push, and what needs no push at all)
 hooks/post-commit     delivers intent to the reconciler the moment it exists
 ```
 
@@ -67,18 +67,19 @@ compiled and tested: a snippet that stops working fails CI rather than a student
 paste.
 
 ```bash
-make test        # labs 2 and 3. Fails on a fresh clone, on purpose
-make lab-test    # lab 4. Same
+./scripts/workshop test        # labs 2 and 3. Fails on a fresh clone, on purpose
+./scripts/workshop lab-test    # lab 4. Same
 make py-test     # contract tests only: schema and golden fixture. Always green
 make solve       # emit the portal's snippets into the tree
 make unsolve     # put the stubs back
-make verify      # solve, build, test, validate, unsolve. This is what CI runs
+./scripts/workshop verify      # solve, build, test, validate, unsolve. This is what CI runs
 ```
 
-`make verify` matters more than it looks, and more than it used to. The answers are
-now TypeScript string literals in the portal, and nothing else in the world compiles
-a string literal — so this is the only thing standing between a provider bump and
-five snippets that no longer work. It needs `pnpm install` in `portal/`.
+`./scripts/workshop verify` matters more than it looks, and more than it used to. The
+answers are now TypeScript string literals in the portal, and nothing else in the
+world compiles a string literal — so this is the only thing standing between a
+provider bump and five snippets that no longer work. It needs `pnpm install` in
+`portal/`.
 
 ## Run it locally
 
@@ -115,26 +116,26 @@ Cloud, which is what the sandbox does, or the older all-host path.
 ```bash
 k3d cluster create platform -p "30820:30820@server:0"   # macOS; Linux uses k3s
 export TEMPORAL_CLOUD_API_KEY=...
-make base-up            # k3s, Vault as a pod, kubernetes auth, seed the key
+./scripts/workshop base-up            # k3s, Vault as a pod, kubernetes auth, seed the key
 unset TEMPORAL_CLOUD_API_KEY
 
 # --username is whatever you like locally; the portal issues it for a real cohort.
-./scripts/workshop-creds init --username me --cohort local
-source "$(./scripts/workshop-creds env-file)"
+./scripts/workshop init --api-key
+./scripts/workshop init --username me --cohort local
+source "$(./scripts/workshop env-file)"
 terraform -chdir=terraform/namespace init
-./scripts/workshop-creds exec -- terraform -chdir=terraform/namespace apply
-./scripts/workshop-creds control
-source "$(./scripts/workshop-creds env-file)" && make platform-up
+./scripts/workshop exec -- terraform -chdir=terraform/namespace apply
+./scripts/workshop platform-up
 ```
 
 **All on the host**, with no cluster — still the fastest inner loop, since the
 worker is a local binary rather than an image:
 
-At any point, `make check` probes tools, cluster, Vault, egress and the control
-plane. `make` on its own lists every verb.
+At any point, `./scripts/workshop check` probes tools, cluster, Vault, egress and the
+control plane. `./scripts/workshop` on its own lists every verb.
 
 ```bash
-make build
+./scripts/workshop build
 
 # 1. A Temporal for the control plane to run on
 temporal server start-dev &
@@ -151,15 +152,26 @@ export STATE_DIR=.platform-state
 ./bin/platform-worker &
 
 # 5. Use it
-./bin/nsctl new
-./bin/nsctl apply -f specs/<name>.yaml
+./bin/tpctl new
+./bin/tpctl apply -f specs/<name>.yaml
+
+# 6. Give it back
+./bin/tpctl destroy <name>
 ```
 
 Note the Vault address differs: `8200` for a host Vault, `30820` for the pod's
-NodePort. `workshop-creds` defaults to the latter, and `VAULT_ADDR` overrides it.
+NodePort. `workshop` defaults to the latter, and `VAULT_ADDR` overrides it.
 
-For the declarative path, `git config core.hooksPath hooks`, then commit a spec and
-watch `nsctl status <name>`.
+For the declarative path, `tpctl sync` delivers every spec in `specs/` by
+signal-with-start; watch it with `tpctl status <name>`. `git config core.hooksPath
+hooks` makes a commit do the same thing, which is how the sandbox runs it.
+
+`tpctl destroy <name>` is the other direction, and it is the only one: **deleting
+`specs/<name>.yaml` does not remove anything.** `sync` iterates over the files it
+finds, so a missing file is never mentioned — while its reconciler keeps running
+and its drift timer keeps the namespaces alive. `destroy` signals that reconciler,
+waits for the teardown, and removes the spec file so the next `sync` does not build
+it all again.
 
 ## Web services
 
@@ -168,19 +180,23 @@ Two, both on Fly and both operated by the instructor:
 - **`portal/`** — Next.js + TypeScript. Lab material with per-student names, live
   checkpoints, and an `/instructor` cohort view. See
   [portal/README.md](portal/README.md).
-- **`services/state/`** — the Terraform HTTP state backend. See
-  [services/state/README.md](services/state/README.md).
+- **`services/authentik/`** — the SAML IdP students sign in through. See
+  [services/authentik/README.md](services/authentik/README.md).
+
+Terraform state is **not** one of them: it is a local file under
+`.platform-state/`, so there is nothing to deploy and nothing to authenticate to.
 
 The portal reads the **Cloud account**, not the students' control planes: each
-sandbox runs its own dev server and nothing central has ingress to it. That is why
+control plane is a pod on that student's own k3s, and nothing central has ingress
+to it. That is why
 the reconciler stamps `participant` and `drift-corrected-at` into namespace tags —
 `Namespace.tags` is readable through the Ops API, so tags are the one channel
 through which progress escapes a sandbox.
 
 Whatever exists only inside a sandbox — a pod on k3s, a secret in Vault, a completed
-workflow — is marked **self-attested** in the portal and graded by that challenge's
-Instruqt check instead. The two graders are complementary by construction, and the
-page says which is which.
+workflow — is marked **self-attested** in the portal and graded by the matching
+script in `instruqt/checks/` instead, run from inside the sandbox. The two graders
+are complementary by construction, and the page says which is which.
 
 The invite flow the training portal needed is gone entirely: SAML authenticates
 students against an Okta tenant.
@@ -188,7 +204,7 @@ students against an Okta tenant.
 ## Test
 
 ```bash
-make verify       # everything, against the solutions. Start here
+./scripts/workshop verify       # everything, against the solutions. Start here
 make lint
 make tf-validate
 ```
@@ -202,8 +218,8 @@ anything reaches a cluster.
 **The workflow id is the resource identity, so Temporal is the lock.** One child
 workflow per resource, keyed on the resource's name. Temporal refuses two
 executions with the same id, so there is a single writer per state file by
-construction — no lock table, no lease, no `terraform force-unlock`. Which is why
-`services/state` implements no `LOCK` endpoint and says so when you ask it.
+construction — no lock table, no lease, no `terraform force-unlock`, and no backend
+here configures a lock address.
 
 **Credentials never pass through Terraform.** `temporalcloud_apikey` exposes
 `.token` as a readable attribute, and `sensitive = true` masks CLI output without

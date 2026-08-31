@@ -40,7 +40,7 @@ export default async function Instructor({
           <p className="eyebrow">Instructor</p>
           <h1>Cohort</h1>
           <p style={{ color: 'var(--muted)', maxWidth: '40rem' }}>
-            Read from the Cloud account, grouped by leased slot. Progress is inferred from what
+            Read from the Cloud account, grouped by username. Progress is inferred from what
             reached the Cloud — namespaces, their environments and their tags — because nothing out
             here can see inside a sandbox.
           </p>

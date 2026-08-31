@@ -1,5 +1,5 @@
 # Documentation, not desired state: files beginning with _ are skipped.
-# Generate a real one with `nsctl new`.
+# Generate a real one with `tpctl new`.
 name: orders
 owner: payments-team
 tier: standard
@@ -8,4 +8,4 @@ region: aws-us-east-1
 environments:
   - staging
   - prod
-stateBackend: http
+stateBackend: local

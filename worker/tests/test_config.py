@@ -40,3 +40,31 @@ def test_invalid_config_is_rejected_with_a_useful_location():
     with pytest.raises(ConfigInvalid) as e:
         validate(bad)
     assert "environment" in str(e.value)
+
+
+def test_log_level_is_case_insensitive_and_never_fatal(monkeypatch):
+    """LOG_LEVEL=info must not stop the worker starting.
+
+    logging.basicConfig only accepts the upper-case level names, so a lower-case
+    value -- which most tools accept, and which plenty of shells already export --
+    used to raise ValueError from inside logging before the worker did anything,
+    with a traceback that never mentioned the variable.
+    """
+    import logging
+
+    from platform_sdk.main import log_level
+
+    for value, want in [("info", logging.INFO), ("INFO", logging.INFO), ("debug", logging.DEBUG)]:
+        monkeypatch.setenv("LOG_LEVEL", value)
+        level, unknown = log_level()
+        assert (level, unknown) == (want, None), value
+
+    # An unrecognised value is reported, not raised: refusing to start is for a
+    # config mismatch, where the alternative is running the wrong code.
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+    level, unknown = log_level()
+    assert level == logging.INFO
+    assert unknown == "verbose"
+
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    assert log_level() == (logging.INFO, None)

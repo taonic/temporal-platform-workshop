@@ -1,4 +1,4 @@
-# The state service builds with the repo root as its context, so keep the context
+# Images build with the repo root as their context, so keep the context
 # small and free of things that would bust the layer cache on every edit.
 .git
 bin/

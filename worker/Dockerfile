@@ -19,7 +19,17 @@ RUN pip install --no-cache-dir .
 
 # The shared schema travels with the image, so boot-time validation works in a pod
 # where there is no checkout to find it in.
-COPY schema/workerconfig.schema.json /etc/worker/workerconfig.schema.json
+# /app/schema, NOT /etc/worker.
+#
+# The generated worker config is delivered as a ConfigMap mounted at /etc/worker,
+# and a volume mount replaces the whole directory -- so a schema baked in at that
+# path exists in the image and is gone in the pod. It failed as
+# "no worker config at /etc/worker/worker-config.json", because main.py caught the
+# FileNotFoundError from loading the SCHEMA and blamed the config.
+#
+# schema_path() already looks here (parents[1]/schema), so this needs no code
+# change and survives whatever the manifest mounts.
+COPY schema/workerconfig.schema.json /app/schema/workerconfig.schema.json
 
 RUN useradd --uid 10001 --create-home worker
 USER 10001

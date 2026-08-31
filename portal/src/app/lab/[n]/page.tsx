@@ -70,8 +70,15 @@ export default async function LabPage({
   // mode a claim-by-key scheme invites.
   const byKey = new Map(snippets.map((sn) => [snippetKey(sn), sn]));
   const claimed = new Set(steps.flatMap((st) => st.snippets ?? []));
-  const unclaimed = snippets.filter((sn) => !claimed.has(snippetKey(sn)));
+  // `hidden` snippets are emitted by snippets:emit but never shown: an answer
+  // that must compile is not always an answer worth reading.
+  const unclaimed = snippets.filter((sn) => !sn.hidden && !claimed.has(snippetKey(sn)));
   const qs = labQuery(username, token);
+
+  // By POSITION in LABS, not `def.number + 1`. Numbering happens to be contiguous
+  // and that is not a thing to depend on: a gap would silently turn every lab
+  // before it into "the last one".
+  const next = LABS[LABS.findIndex((l) => l.number === def.number) + 1];
 
   return (
     <>
@@ -98,12 +105,6 @@ export default async function LabPage({
           </div>
           <h1>{def.title}</h1>
           <p style={{ color: 'var(--muted)' }}>{def.outcome}</p>
-          <div className="row">
-            <span className="chip">{ctx.username}</span>
-            <span className="chip">{ctx.namespacePattern}</span>
-            <span className="chip">~{def.minutes} min</span>
-            {def.writes && <span className="chip">you write {def.writes}</span>}
-          </div>
         </div>
       </header>
 
@@ -112,15 +113,8 @@ export default async function LabPage({
           <RichText>{def.intro}</RichText>
         </p>
 
-        {def.feedback && (
-          <section className="card stack">
-            <h2>Your feedback loop</h2>
-            <p className="expect">
-              Run this before any grader does. It fails on a fresh clone, on purpose — the tests are
-              the lab.
-            </p>
-            <CodeBlock>{def.feedback}</CodeBlock>
-          </section>
+        {def.diagram && (
+          <div className="diagram-svg" dangerouslySetInnerHTML={{ __html: def.diagram }} />
         )}
 
         <section className="stack">
@@ -138,10 +132,29 @@ export default async function LabPage({
                       <span className="badge">graded: {s.grades}</span>
                     </div>
                   )}
+                  {s.lead && (
+                    <p className="expect">
+                      <RichText>{s.lead}</RichText>
+                    </p>
+                  )}
                   {s.command && <CodeBlock>{s.command}</CodeBlock>}
                   {s.expect && (
                     <p className="expect">
                       <RichText>{s.expect}</RichText>
+                    </p>
+                  )}
+                  {s.bullets && s.bullets.length > 0 && (
+                    <ul className="expect bullets">
+                      {s.bullets.map((b, i) => (
+                        <li key={i}>
+                          <RichText>{b}</RichText>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {s.closing && (
+                    <p className="expect">
+                      <RichText>{s.closing}</RichText>
                     </p>
                   )}
                   {(s.snippets ?? []).map((key) => {
@@ -176,6 +189,29 @@ export default async function LabPage({
         username={username}
         token={token}
       />
+
+      {/* After the checkpoints, because the checkpoints are how you know whether
+          you are done. The nav at the top of the page reaches every challenge;
+          this is the one a student follows without reading it. */}
+      <nav className="lab-next">
+        {next ? (
+          <>
+            <Link className="btn btn-cta" href={`/lab/${next.number}${qs}`}>
+              Challenge {next.number}: {next.title} →
+            </Link>
+            <span className="expect">{next.outcome}</span>
+          </>
+        ) : (
+          <>
+            <Link className="btn btn-cta" href={`/${qs}`}>
+              Back to the overview →
+            </Link>
+            <span className="expect">
+              That was the last challenge. The overview lists all five, and what each one graded.
+            </span>
+          </>
+        )}
+      </nav>
       </main>
     </>
   );

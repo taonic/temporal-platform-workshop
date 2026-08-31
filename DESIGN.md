@@ -18,7 +18,15 @@ a placeholder — where a decision was contested, the reasoning is recorded with
 Most Temporal training teaches you to write a workflow. This teaches you to build
 the platform underneath it. The workshop's north star is the talk's own headline
 metric: **time-to-first-workflow, from one-to-two weeks down to minutes.** The
-final challenge measures it with a stopwatch.
+final challenge does not measure it with a stopwatch; it demonstrates it, by
+taking a decorated workflow to a running worker and a completed execution in one
+command.
+
+The stopwatch was a fifth challenge and is now gone: it measured the metric by
+having a student use the platform as a customer, and everything it measured is
+already visible in challenge 4, where the paved road produces a running worker and
+then proves it by executing a workflow through it. A challenge that re-runs the
+previous one with a timer on it is a demonstration, not a lab.
 
 The architecture takes one deliberate position against its own source material.
 OpenAI replaced Terraform with a Kubernetes operator because Terraform was making
@@ -26,7 +34,7 @@ them slow. We keep Terraform as the execution engine inside a single activity, a
 build the control loop as a **Temporal entity workflow instead of a k8s
 controller** — because a workflow is a strictly better operator: durable by
 construction, retryable, auditable, and able to wait on a human. That claim is the
-subject of a ten-minute discussion in challenge 5, not a lab.
+subject of a ten-minute discussion at the end of challenge 4, not a lab.
 
 ---
 
@@ -36,7 +44,7 @@ subject of a ten-minute discussion in challenge 5, not a lab.
 |---|---|
 | Audience | Platform engineers who will build this at their own company |
 | Format | Self-paced-capable Instruqt track; instructor-led guide layered on top |
-| Shape | 5 challenges, ~4 hours |
+| Shape | 4 challenges, ~3.5 hours |
 | Cohort | 15 students |
 | Prior art | `temporal-cloud-training-portal` (sandbox, grading, invite lifecycle), `temporal-terraform-demo` (Terraform-in-activity) |
 
@@ -55,7 +63,7 @@ Three planes, mirroring the talk's own architecture slide.
   PRODUCT SURFACE            PLATFORM CONTROL PLANE            TEMPORAL CLOUD
   (Python)                   (Go)
 
-  decorated workflow         nsctl  ── interactive wizard      namespace (staging)
+  decorated workflow         tpctl  ── interactive wizard      namespace (staging)
     declares queue + ns        │                               namespace (prod)
         │                      ├─ writes specs/*.yaml          namespace-scoped SA
         ▼                      │                               API key
@@ -69,8 +77,8 @@ Three planes, mirroring the talk's own architecture slide.
                                └─ mint-key activity ──► Vault
 
   SUPPORTING SERVICES
-    tfstate service — HTTP backend on Fly.io, per-student, volume-backed, no locking
     Authentik       — SAML IdP on Fly. Usernames chosen at join. No mail anywhere
+    (Terraform state is a local file. There is no state service.)
 ```
 
 ### The language seam
@@ -81,7 +89,7 @@ teaching rather than in an arbitrary place.
 
 | Side | Language | Contents |
 |---|---|---|
-| Platform | Go | `nsctl` CLI, reconciler workflows, Terraform activities, mint-key activity |
+| Platform | Go | `tpctl` CLI, reconciler workflows, Terraform activities, mint-key activity |
 | Product | Python | Decorator machinery, `gen-config`, the managed worker deployed to k3s |
 
 Two consequences worth stating. First, the Go reconciler means
@@ -95,7 +103,7 @@ developer's side.
 
 | Worker | Language | Hosts | Runs on |
 |---|---|---|---|
-| Platform worker | Go | Reconciler workflows, Terraform + mint-key activities | `temporal server start-dev`, pointed at the control-plane namespace the student's own CLI provisioned in challenge 1 |
+| Platform worker | Go | Reconciler workflows, Terraform + mint-key activities | k3s in the sandbox, against the Cloud control-plane namespace the student's own Terraform provisioned in challenge 1 |
 | Managed worker | Python | The developer's decorated workflows | k3s in the sandbox, deployed by the platform in challenge 4 |
 
 Only the managed worker moves to Kubernetes. A platform's control plane is central
@@ -110,9 +118,9 @@ punchline: **the control plane's first customer is itself.**
 
 ## Load-bearing design rules
 
-Nine rules carry the design. Each one is a lesson as much as an implementation
-choice — except the last two, which are constraints on how the other seven get
-built and maintained.
+Ten rules carry the design. Each one is a lesson as much as an implementation
+choice — except the last three, which are constraints on how the other seven get
+built, taught and maintained.
 
 ### 1. Workflow ID is the resource identity, so Temporal is the lock
 
@@ -120,9 +128,9 @@ One entity workflow per logical namespace, keyed on its name and started with
 `signal-with-start`; one child workflow per physical namespace. Temporal's own
 workflow-ID uniqueness constraint gives single-writer-per-resource for free.
 
-Therefore: **no DynamoDB lock table, no lease, no `terraform force-unlock`, and the
-state service implements no `LOCK`/`UNLOCK` endpoints at all.** Terraform's `http`
-backend treats locking as optional — omit `lock_address` and it never locks.
+Therefore: **no DynamoDB lock table, no lease, and no `terraform force-unlock`
+runbook.** State conflicts are prevented upstream of the backend, by the workflow
+id, rather than arbitrated by it.
 
 Leave a comment in the backend config saying why. A student who notices the missing
 lock and asks "isn't that dangerous?" is one question from the best insight in the
@@ -159,7 +167,7 @@ account-scoped `metricsread` service account.
 The decorated workflow is the source of truth. `@workflow.defn` is extended so a
 workflow declares its own task queue and namespace; `gen-config` imports the
 modules and emits the worker config from the live registry. The Python side owns
-this because that is where the decorators are; `nsctl worker gen-config` is a
+this because that is where the decorators are; `tpctl worker gen-config` is a
 **façade that shells out**, which is both better UX and a real lesson — a
 platform CLI is a user interface, not a place where logic lives.
 
@@ -217,9 +225,20 @@ This is a constraint on implementation, not a feature, and it has teeth:
   port and falls back to a `kubectl port-forward` on the same number. The address in
   the lab text is identical everywhere, which is the whole point.
 - **Image delivery branches on the cluster, not the OS.** k3s runs its own
-  containerd and needs `ctr images import`; k3d wraps that; Docker Desktop shares
-  the Docker daemon and needs no import at all. `make k3s-import` asks which it is.
-- **Every input falls back: argument, environment, prompt.** `workshop-creds` is
+  containerd and needs `ctr images import`; k3d wraps that; Docker Desktop *may or
+  may not* share the Docker daemon — kubeadm-provisioned does, kind-provisioned
+  (node `desktop-control-plane`) does not, and both report the context
+  `docker-desktop`. So the branch is on the node, never the context name.
+- **Bring-up creates the cluster it needs.** `platform-up` starts a stopped k3d
+  cluster, creates one if there is none, and switches to one if the current
+  context cannot take locally built images. "Install k3d and run this other
+  command first" was a step the script could take itself.
+- **And refuses the ones it does not recognise.** kubectl's context is global
+  state anything on the machine can change. Deploying a Vault holding a live Cloud
+  credential into somebody's real EKS cluster is the one mistake here that
+  deleting a namespace does not undo, so unfamiliar contexts are refused by name
+  unless `WORKSHOP_ALLOW_CLUSTER=1` says otherwise.
+- **Every input falls back: argument, environment, prompt.** `workshop` is
   driven non-interactively by the sandbox, where the values are already in
   `/etc/workshop/env`, and asks on a laptop, where they are not. Nothing requires a
   TTY unless a value is genuinely missing. Its env file is `/etc/workshop/env` as
@@ -239,13 +258,20 @@ It is a broken workshop, and it breaks at the exact moment someone is trusting t
 instructions rather than checking them.
 
 So every change to **what a student types, what they see, or what must be true
-before a step** carries its lab edit in the same commit. There are two surfaces and
-both are load-bearing:
+before a step** carries its lab edit in the same commit. There is now exactly one
+surface for that text:
 
 | Surface | What it is |
 |---|---|
 | `portal/src/course/labs/lab<n>.ts` | the portal's steps, snippets and checkpoints |
-| `instruqt/track/<nn>-*/assignment.md` | the in-sandbox text, and the tab config |
+
+Instruqt used to carry a second copy — one `assignment.md` per challenge, the same
+instructions in prose form. It was dropped. Two copies of the same instruction is
+two things to update and one of them to forget, and the duplication bought nothing:
+the portal already personalises every command with the student's username, cohort
+and region, which an assignment file cannot do. Instruqt is now the sandbox, and
+`instruqt/track/01-workshop/assignment.md` is one thin challenge that says so and
+carries the tab config.
 
 The failure mode is specific and unusually expensive. Someone follows a stale
 instruction, hits an error the code does not actually have, and debugs the wrong
@@ -253,13 +279,64 @@ thing — the instruction, the environment and the code all disagree, and only o
 them is wrong. Two changes in this design would have done exactly that: moving Vault
 into k3s changed its address from `127.0.0.1:8200` to a NodePort, so every
 `vault kv get` in the lab text would have failed for a reason the lab did not
-mention; and embedding the Terraform module in the worker binary made `nsctl apply`
+mention; and embedding the Terraform module in the worker binary made `tpctl apply`
 depend on a rebuild step that no lab had.
 
 `pnpm snippets:check` guards what it can — that every snippet claim and grade id
-resolves — and `make verify` compiles the answers. Neither can tell whether prose
-still describes reality. That part is a human obligation, which is why it is written
-down as a rule rather than left to a linter.
+resolves — and `./scripts/workshop verify` compiles the answers. Neither can tell
+whether prose still describes reality. That part is a human obligation, which is why
+it is written down as a rule rather than left to a linter.
+
+### 10. Automation announces itself; it never hides what it did
+
+Every script a student runs explains each step **before** taking it, in the
+vocabulary the labs use, and — when a human is watching — waits for a keypress
+before continuing.
+
+This is not a usability nicety, it is the thesis. The workshop's claim is that a
+platform is something you can build and reason about rather than something that
+happens to you. A bring-up script that prints forty lines of `kubectl` output and
+ends with "Control plane is up" teaches the opposite lesson, and teaches it in the
+first ten minutes: the platform is a black box, and the way to operate it is to run
+the magic command and hope. A student who cannot say what `platform-up` did cannot
+debug it at 3am, and cannot rebuild it at their own company, which is the entire
+point of the four hours.
+
+It also pays for itself the first time something breaks. The failure the workshop
+actually hit — a Docker Desktop cluster that silently could not see a locally built
+image — was invisible precisely because the script said "nothing to import" and
+moved on. Steps that name what they are about to do turn that class of bug from a
+mystery forty seconds later into a sentence you were just shown.
+
+The obligations, in order of how easily they are forgotten:
+
+- **Announce before, not after.** "About to write the platform-env ConfigMap, and
+  here is what goes in it" is teaching. "Wrote configmap/platform-env" is a log
+  line.
+- **Say why, not just what.** The step that configures Kubernetes auth explains
+  that it is what lets the pod hold no token in its manifest. Without the why, the
+  pause is just friction.
+- **Never block a machine.** Waiting requires a TTY. The sandbox provisioner, CI
+  and `make up` inside another script must run start to finish untouched, so the
+  pause is skipped when stdin is not a terminal, and `WORKSHOP_YES=1` (or
+  `workshop platform-up --yes`) opts out explicitly for the fifth run of the
+  morning. This is the same argument-environment-prompt ladder as rule 8.
+- **A skipped pause still prints.** Opting out of waiting is not opting out of the
+  explanation, or the log stops being a record of what happened.
+- **Colour separates the three voices.** Cyan for what is about to happen, dim for
+  why, yellow for the one line asking something of you — so a student scanning a
+  screenful can find the next action without reading it all. Suppressed when stdout
+  is not a terminal and when `NO_COLOR` is set, because the sandbox captures this
+  into a log where escape codes are noise.
+- **Teardown is exempt.** The rule exists so a student understands what is being
+  *built*. Narrating a `platform-down` they just asked for is friction in front of
+  the thing they wanted.
+- **The words match the labs.** A step that calls something a "control namespace"
+  while the lab calls it something else has added a second vocabulary to learn.
+
+The rule applies to anything that provisions or deploys. It does not apply to
+`tpctl`, which is the product surface a developer uses and should feel fast — a
+paved road that pauses to explain itself is not paved.
 
 ---
 
@@ -276,8 +353,8 @@ Written by the CLI's interactive wizard. Fields follow the talk's own tool
 | `owner` | Who to page. Drives access grants and, in a real platform, alert routing. |
 | `tier` | Policy hook. Nothing consumes it yet — its presence teaches spec-as-policy. |
 | `retention` | Days. |
-| `environments` | `[staging, prod]`. One region. |
-| `stateBackend` | `http` (default) or `local`. |
+| `environments` | `[staging]` by default; `[staging, prod]` when asked for. One region. The default is one because namespaces are quota-bound, and challenge 2 opts into two deliberately so the fan-out has something to fan out to. |
+| `stateBackend` | `local` (default) or `s3`. |
 
 The CLI is an **interactive wizard by default, with a flag for every prompt and
 `--non-interactive`.** The wizard is the demo-able artifact that makes the platform
@@ -306,7 +383,7 @@ identity deliberately lacks.
 | Principal | Role | Why |
 |---|---|---|
 | Platform service account | **Developer** | Least privilege, and provably sufficient (rule 3) |
-| Student user | **Global Admin** | Needed to see namespaces the platform SA created; challenge 5 depends on it |
+| Student user | **Global Admin** | Needed to see namespaces the platform SA created, which every challenge from 2 onward asks for |
 | Managed worker SA | Namespace-scoped, `write` | Data plane only — polls a queue, completes tasks |
 | Grader | Account-scoped read | Portal precedent; read-only wrapper |
 
@@ -331,145 +408,85 @@ link — see *Identity via SAML*. The role assignments above are unchanged.
 
 ---
 
-## The five challenges
+## The four challenges
 
-1. **Spec to workflow.** Write the spec schema. `nsctl apply -f` starts a workflow;
-   one activity runs Terraform; one namespace appears. Imperative on purpose — a
-   student's first twenty minutes need a visible win, and a declarative loop that
-   silently does nothing has four candidate failure points.
-   *Graded:* namespace exists with the right retention, via Ops API.
+1. **Bootstrap by hand.** Mint the platform's service account and hand its key to
+   Vault. Write the Terraform module that makes a namespace, then apply it yourself
+   — once — to create the namespace the namespace-creator will run in. By hand on
+   purpose: something has to break the chicken-and-egg, and a student's first twenty
+   minutes need a visible win that no control loop can silently withhold.
+   *Graded:* namespace exists with api-key auth and the right retention, via Ops API.
 
 2. **Fan-out and identity.** Parent entity workflow, one child per environment.
    Namespace-scoped service account per environment; the API key minted outside
    Terraform and written to Vault, the activity returning only a path.
    *Graded:* two namespaces and two service accounts via Ops API; Vault path resolves.
 
-3. **Invert to declarative.** Same activities, new driver: commit the spec, the hook
-   signals, the reconciler reconciles. Change retention in the Cloud UI behind its
-   back and watch the timer catch the drift. Delete an environment and watch cleanup.
-   *Graded:* Query the reconciler for a drift-corrected result, **and the removed
-   environment is actually gone** — that second check is what holds the namespace
-   budget at three per student, so it is mandatory rather than illustrative.
+3. **Invert to declarative.** Same activities, new driver: `tpctl sync` delivers
+   the spec by signal-with-start, and the reconciler takes it from there. Change
+   retention in the Cloud UI behind its back and watch the timer catch it and put
+   it back.
+   *Graded:* a reconciler exists for the spec, and a retention change nobody
+   committed was detected **and corrected** — `reconciles`, `driftsDetected`,
+   `lastDrift` naming retention, and the namespace actually back at the spec's
+   value. All four come from the reconciler's Query handler, which is the
+   argument for it being a workflow: the Ops API can show that a namespace is
+   correct, but never that a loop noticed it was wrong.
+
+   Environment removal used to be graded here, justified as what held the
+   namespace budget. It is gone: the budget is held further upstream now, by
+   `tpctl new` defaulting to one environment rather than two.
 
 4. **The paved road.** A decorated workflow declares its own queue and namespace;
-   `gen-config` emits worker config; `nsctl` templates the manifest; the worker
-   lands on k3s. Vault auth switches from root token to Kubernetes auth as a graded
-   step — the one moment where "the worker moved into the cluster" has a consequence
-   the student must handle rather than observe.
-   *Graded:* worker pod healthy, polling the right queue in the right namespace.
+   `gen-config` emits worker config; `tpctl deploy` grants the worker its Vault
+   identity, builds the image, templates the manifest and lands the worker on k3s.
+   The student then calls their own workflow and watches it complete in the Cloud
+   UI — the demonstration of time-to-first-workflow that the stopwatch challenge
+   used to make with a timer.
 
-5. **Be the developer.** New persona, empty directory, **stopwatch**. From nothing
-   to a completed workflow using only the platform you built — one spec, one
-   environment (`--environments staging`), which keeps the peak at three namespaces
-   without costing the challenge anything: a new team's first ask is rarely both
-   environments. Then ten minutes on why OpenAI abandoned Terraform for an operator,
-   and what a Temporal-based control loop gets right that a k8s controller cannot.
-   *Graded:* a workflow completed in the provisioned namespace within N minutes of
-   the challenge starting.
-
-Challenge 4 is the fattest and least forgiving — every failure there is a container
-failure rather than a platform lesson. Mitigation: the worker image is **pre-built
-and pre-imported into k3s** during sandbox provisioning, so the challenge is
-configuration and deployment, not `docker build`.
-
-### Lab pedagogy
-
-Five files are prose stubs a student writes; everything else is provided.
-
-This follows the training portal's split, which is sharper than it first looks.
-Across its five `lab*.tf` files the portal ships **176 lines of prose and zero
-lines of code** — students write every Terraform resource. Its Python worker labs
-are the opposite: 41 to 201 code lines each, thin entrypoints over a provided
-`training/` package that students only ever *run*. It never asks anyone to write
-Python. It asks them to write the declarative, low-syntax-risk, Cloud-gradable
-layer.
-
-Applied here:
-
-| File | Challenge | Lesson |
-|---|---|---|
-| `terraform/namespace/main.tf`, `outputs.tf` | 1 | The module, and why `temporalcloud_apikey` is absent from it |
-| `internal/platform/environment.go` | 2 | The fan-out child, and what a return value costs you |
-| `internal/platform/wait.go` | 3 | Signals carry intent; the timer catches reality |
-| `worker/workflows/greeting.py` | 4 | The decorator is the declaration |
-
-Two deviations from the portal, both deliberate. **Go is stubbed at all**, against
-the portal's instinct — but the reconciler's wait and the fan-out child are the two
-best lessons in the repo, and reading them is not the same as writing them. And
-`MintNamespaceKey` is *not* stubbed even though it carries rule 2, because it is
-mostly Cloud Ops API plumbing; the same lesson lands harder in
-`EnvironmentWorkflow`, where it shows up as a decision about what to return.
-
-Mechanism: Go stubs return a non-retryable application error rather than panicking,
-so the message propagates through the parent workflow, the CLI and the Temporal UI.
-A panic would retry forever and say nothing. `_stubs/` is underscore-prefixed so the
-Go toolchain ignores it outright.
-
-**Where the answers live.** In the portal, as the snippets students read — one copy,
-and it is the copy they actually see, rendered inside the step that asks for the
-file rather than collected at the foot of the page. Every lab has one, behind a single click,
-because with no solutions directory a lab without a snippet would have no reference
-answer anywhere: not for a stuck student, not for an instructor, not for CI. The
-disclosure carries the training portal's own line, which is the right one: *type it
-rather than pasting it if you have the time, the arguments are the lesson.*
-
-The obvious hazard is rot — nothing compiles a TypeScript string literal. So
-`pnpm snippets:emit` writes every path-backed snippet to its real path and
-`make verify` compiles and tests it there before restoring the stubs. That is
-strictly better than the solutions directory it replaced, because it checks the
-string the student is shown rather than a file that resembles it.
-
-The unit tests double as the student's feedback loop, which the portal has no
-equivalent of because HCL has none. `make test` and `make lab-test` therefore
-**fail on a fresh clone, on purpose**; `make verify` applies the solutions, runs
-everything and restores the stubs, and is what protects the answer key from rotting.
-
-### Grading strategy
-
-Three layers. Cloud-side state via the **Ops API**, following the portal's
-approach. Platform-side behaviour by **Query on the student's own reconciler
-workflow** — drift detection is invisible to the Ops API but plainly readable from
-workflow state, and it costs one Query handler. And the challenge-5 stopwatch,
-which makes the thesis measurable.
-
-Self-paced means nothing can be graded by walking the room. The portal's sharp edge
-#7a admits its Grafana dashboard was unverifiable and the mitigation was "look at
-screens." That option does not exist here, so every checkpoint must be machine-
-verifiable from the Ops API or from inside the sandbox.
+   Kubernetes auth used to be a graded step here, performed by hand. It is now
+   part of `deploy`, because granting a workload its identity belongs with
+   deploying the workload: doing it afterwards leaves a window where the
+   Deployment exists and crash-loops, and leaves the grant to a step somebody
+   forgets — which is how a role ends up bound to `default` because that made the
+   error go away. The lesson survives in the manifest-reading step, which asks the
+   student to look for a credential and not find one.
+   *Graded:* worker pod healthy, polling the right queue in the right namespace,
+   and its workflow ran to completion.
 
 ---
 
 ## Supporting services and identity
 
-One service, one IdP, no mail. The state service runs on Fly.io, is operated by the
-instructor, and lives in this repo under `services/state/` with clear separation
-from student-facing code — no secrets in the repo, Fly secrets only. Identity is not
-a service you build.
+One IdP, no mail, and no state service. Authentik runs on Fly.io and is operated by
+the instructor; identity is not a service you build. Terraform state is a local
+file, so there is nothing else to stand up, reach or authenticate to.
 
-The implemented layout: `cmd/nsctl` and `cmd/platform-worker` (Go binaries),
+The implemented layout: `cmd/tpctl` and `cmd/platform-worker` (Go binaries),
 `internal/platform` (workflows and activities), `internal/tfexec` and
 `internal/tfworkspace` (ported from temporal-terraform-demo), `internal/cloudops`,
 `internal/vaultkv`, `internal/spec`, `internal/workerconfig`, `terraform/namespace`
 (embedded module), `worker/` (the Python managed worker), `schema/`, `specs/`,
-`services/state/`, `instruqt/`, `hooks/post-commit`.
+`instruqt/`, `hooks/post-commit`.
 
-### Terraform state service
+### Terraform state
 
-An HTTP backend: `GET` / `POST` / `DELETE`, basic auth, volume-backed.
+**A local file**, one per physical namespace, under `.platform-state/<username>/
+<logical-ns>/<env>.tfstate`. Selected by `stateBackend: local`, which is the default.
 
-- Partitioned by path: `/state/<participant-id>/<logical-ns>/<env>`
-- Per-student bearer token minted at sandbox setup, injected as `TF_HTTP_PASSWORD`
-- **No lock endpoints** (rule 1)
-- Remote state also means a student who restarts their sandbox keeps their state
+The workshop ran an HTTP state service on Fly for a while, and dropped it. It was
+one more thing to deploy, one more per-student credential to mint and hand over,
+and one more way for a sandbox with no egress to fail on challenge 1 — the portal's
+documented number-one sandbox complaint. A file on the box the student is already
+sitting in front of is debuggable with `cat`, and `stateBackend: s3` remains as
+proof that the backend interface is real rather than one implementation wearing a
+costume.
 
-The **local file backend is retained as a working implementation**, selected by
-`stateBackend: local`. Not for production — because it is the only thing a student
-can debug when the Fly service is unreachable, and egress failure is the portal's
-documented number-one sandbox complaint.
-
-A single Fly machine makes "apply succeeded, state write failed" *more* likely than
-the demo's original S3 design did. This is exactly why `AttemptImport` ports over
-rather than being dropped: it re-adopts orphaned resources instead of duplicating
+In the sandbox the control plane runs on k3s, so its state directory is a
+`PersistentVolumeClaim` — state survives the pod, and challenge 4 rolls that
+Deployment as part of the lab. It does not survive the sandbox: local-path writes
+to the node. That is exactly why `AttemptImport` ports over from the demo rather
+than being dropped: it re-adopts orphaned resources instead of duplicating
 them.
 
 ### Identity via Authentik
@@ -526,18 +543,18 @@ with slots — see *Names are recyclable* below.
 Instead: **a student types the username they want**, and the portal provisions it.
 One identifier, chosen by the person who has to remember it.
 
-- Validated `^[a-z][a-z0-9-]{1,14}$`. Not arbitrary: the username becomes part of a
+- Validated `^[a-z][a-z0-9-]{1,13}$` — 2 to 14 characters. Not arbitrary: the username becomes part of a
   namespace name, which Cloud caps at 39 characters and restricts to lowercase
   letters, numbers and hyphens. The budget is shared with the spec name —
-  `ws-` + 14 + `-` + 12 + `-staging` is 38 — so `nsctl new` caps spec names at 12.
+  `ws-` + 14 + `-` + 12 + `-staging` is 38 — so `tpctl new` caps spec names at 12.
   Both are validated at the point of typing, because the same rejection arriving
   from a Terraform activity reads as a broken module.
 - **A repeat username is a return, not a conflict.** Same participant: the password
   is reset and shown again. Different participant: rejected. Recovery and conflict
   are one code path, which is the whole of "I closed the tab".
 - The portal assigns **Global Admin**, as the identity matrix already specifies —
-  students must see namespaces their platform's service account created, and
-  challenge 5 depends on it.
+  students must see namespaces their platform's service account created, which
+  every challenge from 2 onward asks them to do.
 - Registration is **refused past the cohort cap**. "The workshop is full, see the
   instructor" at join is a conversation; running out of namespaces at 11:00 is an
   outage that lands on whoever applies next.
@@ -551,7 +568,7 @@ chosen by the person who has to remember it, and legible in a Vault path in a wa
 that `secret/namespaces/a3f9c2.../` never was.
 
 It reaches the sandbox the same way every other value does —
-`workshop-creds init --username <name>` — which is why it also works on a laptop
+`workshop init --username <name>` — which is why it also works on a laptop
 where no participant id exists. The sandbox prints a **bare join link**; the portal
 issues the personalised, HMAC-signed one back, and that URL is the thing a student
 bookmarks and the recovery path they return through.
@@ -559,6 +576,15 @@ bookmarks and the recovery path they return through.
 Workshop state — which username, which cohort — is stored as **Authentik user
 attributes** through its API. No second datastore, and nothing writes Authentik's
 schema behind its back, because Authentik migrates on every upgrade.
+
+**In Authentik the username is the full address**, `tao@temporal.workshop`, and the
+bare handle lives in `name`. That is not cosmetic: the SAML assertion carries the
+username, and Temporal Cloud creates nothing just-in-time — an assertion naming a
+bare `tao` arrives for a user the account has never seen and is rejected at a
+student's first login, in front of the room. So the portal provisions both sides at
+the same string, and re-establishes it on every join rather than trusting that the
+first one held: an account made by hand, or under an earlier convention, converges
+instead of quietly failing one hop from its cause.
 
 **The accepted risk.** Creating a Temporal Cloud user is an account-admin
 operation, so the portal holds an **account-owner API key** — a public web service
@@ -575,8 +601,14 @@ purpose** — a kill switch that shares a failure domain with the thing it switc
 off is not one — and this note exists so that neither is later deleted as
 redundant.
 
-The domain is needed only as an identifier namespace and for the IdP-domain mapping
-support asks for. **No MX, no SPF, no DKIM, no mailbox.**
+The domain is **`temporal.workshop`**, fixed for every cohort. It is an identifier
+namespace and nothing else: **no MX, no SPF, no DKIM, no mailbox.**
+
+It does not resolve, on purpose. `.workshop` is not a delegated TLD, so the name
+cannot be registered by anyone and therefore cannot collide with a real Temporal
+Cloud account, and cannot capture logins for a domain somebody actually uses.
+Whether support will map an IdP domain absent from DNS is the one thing to confirm
+in the ticket; the fallback is a subdomain you own, never an apex.
 
 ---
 
@@ -584,16 +616,32 @@ support asks for. **No MX, no SPF, no DKIM, no mailbox.**
 
 `n1-standard-4`, 16 GB, k3s. The portal's build already needs this for uv plus
 Docker plus code-server; this one drops Prometheus and Grafana but adds a Go
-toolchain, k3s and Vault.
+toolchain, k3s and the Vault CLI.
 
 Prebuilt aggressively:
 
-- Go toolchain; `uv sync` complete
+- Go toolchain, module cache warm; `uv sync` complete
 - `terraform` plus a **warm provider plugin cache** — a cold `terraform init`
   against `temporalio/temporalcloud` is a silent two-minute stall on challenge 1
-- Vault binary
-- k3s installed, **not started**
-- The managed worker image **built and imported into k3s's image store**
+- Vault **CLI** only. The server is a pod on k3s
+- `temporal` with `temporal cloud`, and a build-time assertion that the subcommand
+  exists — a stale pin is a failed preset build rather than a failed challenge 1
+- k3s **started and enabled**, its own system images pulled. This used to be
+  "installed, not started", from when the cluster first appeared in challenge 4;
+  Vault runs on it now, so it is challenge-1 material and a first start is a
+  minute of image pulls at the first prompt of the day
+- **Both** images — `platform-worker:dev` (the Go control plane) and
+  `managed-worker:dev` (the Python worker a team deploys) — built and staged in
+  k3s's image store, plus `hashicorp/vault`, so nothing pulls from a registry
+  mid-challenge
+- code-server on 8443 behind the Editor tab, and a `code` shim on `PATH`, because
+  four lab steps are `code <file>`
+
+Deliberately **not** prebuilt: Vault itself, the control plane, and any Temporal
+server. Vault runs in dev mode, so anything seeded into it dies when the snapshot
+boots; the control plane is what the student deploys in challenge 2, onto the
+namespace their own Terraform made in challenge 1, and having one already running
+gives the bootstrap away. There is no local dev server anywhere in the workshop.
 
 k3s over k3d **in the sandbox**: the Kubernetes-auth switch in challenge 4 is more
 honest against a real kubelet, and nothing is torn down repeatedly. Measure the
@@ -629,23 +677,21 @@ challenge 2 and the peak is three:
 
 | | control | staging | prod / payments | total |
 |---|---|---|---|---|
-| Challenge 2 peak | 1 | 1 | 1 | **3** |
-| Challenge 5 peak | 1 | 1 | 1 | **3** |
+| Peak, per student | 1 | 1 | — | **2** |
 
-15 × 3 = **45 of 50**, five spare. That headroom is not slack, it is insurance
-against a specific failure: a student who skips challenge 3's environment removal
-and reaches challenge 5 holds **four**. Five spare absorbs five of them. Sixteen
-students would leave room for two, and the third straggler's failure lands on
-whoever applies next — not on the student who skipped, which makes it the worst
-kind of bug to debug in a room.
+15 × 2 = **30 of 50**, twenty spare. That headroom used to be five, and holding it
+took three mechanisms and a graded teardown. Two changes retired all of that:
 
-Three mechanisms hold the peak at three, and all of them are needed:
+1. **`tpctl new` defaults to one environment.** A namespace is a finite account
+   resource, so the default is the least that works and asking for two is a flag.
+   The budget is held before anything is created, rather than clawed back
+   afterwards by a step a student can skip.
+2. **The stopwatch challenge is gone**, and with it the second spec every student
+   provisioned at the very end — both the largest single draw and the one that
+   arrived when the account was already fullest.
 
-1. **Challenge 3's environment removal is graded and mandatory.** It is what
-   returns a student to two before challenge 5 adds one.
-2. **Challenge 5 provisions a single environment** — `--environments staging`. The
-   stopwatch and the "you provisioned it yourself" beat both survive; a new team's
-   first ask is rarely both environments anyway.
+The remaining mechanism is still worth having:
+
 3. **The reconciler pre-checks remaining quota** before an apply and fails with the
    real cause. Without it, hitting the cap surfaces as a Cloud error inside a
    Terraform activity, which reads as *"my module is wrong"* and sends a student
@@ -664,7 +710,7 @@ be strictly worse, because a participant-derived scheme burns a fresh name per
 cohort while a slot-derived one burns a fixed small set and breaks on the second
 cohort. Slots never solved the problem they were introduced for.
 
-So **slots are retired**, along with `SlotPoolWorkflow`, `nsctl slot` and the
+So **slots are retired**, along with `SlotPoolWorkflow`, `tpctl slot` and the
 reaper. Physical names are `ws-<username>-<spec>-<env>`, derived from the name the
 student chose. What the slot pool was really allocating — a scarce pre-provisioned
 identity — is gone too, now that identities are created at join time.
@@ -737,12 +783,16 @@ Named so they read as decisions rather than gaps.
 4. **Authentik is a total-outage dependency.** Down at 09:00 means nobody logs into
    Temporal Cloud and the workshop does not start. Okta's availability was somebody
    else's problem; this is ours.
-5. **Five namespaces of headroom.** 15 students × 3 is 45 of 50. A student who
-   skips challenge 3's removal and reaches challenge 5 holds four, and five such
-   stragglers exhausts the margin. The graded removal and the reconciler's quota
-   pre-check are what keep this theoretical. **A sixteenth attendee does not fit.**
-6. **Single-machine state service.** Mitigated by `AttemptImport`, but a Fly deploy
-   mid-workshop will fail somebody's apply.
+5. **Namespace headroom is no longer tight.** 15 students × 2 is 30 of 50, and the
+   margin now comes from the default rather than from a step anyone can skip — see
+   *Numbers, quotas and lead times*. The reconciler's quota pre-check stays, because
+   the failure it prevents lands on whoever applies next rather than on whoever
+   caused it. A sixteenth attendee now fits; a thirtieth does not.
+6. **Local state does not outlive the sandbox.** A `PersistentVolumeClaim` backs
+the control plane's state directory, so it survives `./scripts/workshop reload`, a
+crash and a reschedule — but local-path writes to the node, and destroying the
+sandbox destroys it. `AttemptImport` re-adopts the orphans, so a rebuilt sandbox is a
+slow first apply rather than a lost namespace.
 7. **Sandbox boot time** is unmeasured and the prebuild list is long.
 8. **Authentik becomes the access control plane.** Between cohorts, standing Global
    Admin users sit in the account gated only by Authentik — an IdP we now operate.

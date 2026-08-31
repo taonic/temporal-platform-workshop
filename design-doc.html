@@ -221,7 +221,7 @@ footer p{font-size:.85rem; color:var(--muted)}
         </div>
         <div class="plane">
           <div class="plane-head"><span class="name">Platform control plane</span><span class="lang">go</span></div>
-          <div class="node"><span class="t">nsctl</span><span class="s">Interactive wizard, plus a flag for every prompt. Writes <code>specs/*.yaml</code></span></div>
+          <div class="node"><span class="t">tpctl</span><span class="s">Interactive wizard, plus a flag for every prompt. Writes <code>specs/*.yaml</code></span></div>
           <div class="node key"><span class="t">reconciler workflow</span><span class="s">Entity workflow per logical namespace, child per environment</span></div>
           <div class="node"><span class="t">terraform activity</span><span class="s">Ports temporal-terraform-demo nearly verbatim, AttemptImport included</span></div>
           <div class="node"><span class="t">mint-key activity</span><span class="s">Cloud Ops API direct to Vault. Returns a path, never a token</span></div>
@@ -287,7 +287,7 @@ footer p{font-size:.85rem; color:var(--muted)}
       <article class="rule">
         <p class="guarantee">Guarantees config cannot drift from code</p>
         <h3>Config is generated from the decorated workflow</h3>
-        <p>The decorated workflow is the source of truth. <code>gen-config</code> imports the modules and emits worker config from the live registry. Python owns it because that is where the decorators are; <code>nsctl worker gen-config</code> is a <strong>fa&ccedil;ade that shells out</strong> &mdash; better UX, and a real lesson: a platform CLI is a user interface, not a place where logic lives.</p>
+        <p>The decorated workflow is the source of truth. <code>gen-config</code> imports the modules and emits worker config from the live registry. Python owns it because that is where the decorators are; <code>tpctl worker gen-config</code> is a <strong>fa&ccedil;ade that shells out</strong> &mdash; better UX, and a real lesson: a platform CLI is a user interface, not a place where logic lives.</p>
       </article>
 
       <article class="rule">
@@ -361,9 +361,9 @@ footer p{font-size:.85rem; color:var(--muted)}
       <div class="step">
         <div class="step-n">1</div>
         <div class="step-body">
-          <h3>Spec to workflow</h3>
-          <p>Write the spec schema. <code>nsctl apply -f</code> starts a workflow, one activity runs Terraform, one namespace appears. Imperative on purpose &mdash; a student&rsquo;s first twenty minutes need a visible win, and a declarative loop that silently does nothing has four candidate failure points.</p>
-          <p class="graded"><b>Graded</b>Namespace exists with the right retention, via Ops API.</p>
+          <h3>Bootstrap by hand</h3>
+          <p>Mint the platform&rsquo;s service account and hand its key to Vault. Write the Terraform module that makes a namespace, then apply it yourself &mdash; once &mdash; to create the namespace the namespace-creator will run in. By hand on purpose: something has to break the chicken-and-egg, and a student&rsquo;s first twenty minutes need a visible win that no control loop can silently withhold.</p>
+          <p class="graded"><b>Graded</b>Namespace exists with api-key auth and the right retention, via Ops API.</p>
         </div>
       </div>
 
@@ -389,7 +389,7 @@ footer p{font-size:.85rem; color:var(--muted)}
         <div class="step-n">4</div>
         <div class="step-body">
           <h3>The paved road</h3>
-          <p>A decorated workflow declares its own queue and namespace; <code>gen-config</code> emits the worker config; <code>nsctl</code> templates the manifest; the worker lands on k3s. Vault auth switches from root token to Kubernetes auth as a graded step &mdash; the one moment where &ldquo;the worker moved into the cluster&rdquo; has a consequence the student must handle rather than observe.</p>
+          <p>A decorated workflow declares its own queue and namespace; <code>gen-config</code> emits the worker config; <code>tpctl</code> templates the manifest; the worker lands on k3s. Vault auth switches from root token to Kubernetes auth as a graded step &mdash; the one moment where &ldquo;the worker moved into the cluster&rdquo; has a consequence the student must handle rather than observe.</p>
           <p class="graded"><b>Graded</b>Worker pod healthy, polling the right queue in the right namespace.</p>
         </div>
       </div>

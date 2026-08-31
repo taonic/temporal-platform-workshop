@@ -1,6 +1,7 @@
 // Command platform-worker is the control plane.
 //
-// It hosts the reconciler, the terraform activities, the slot pool and the reaper.
+// It hosts the reconciler and the activities it schedules -- terraform, key
+// minting, and the read-only Cloud inspections that drive drift detection.
 // In the workshop it runs against `temporal server start-dev` for the first
 // challenges and then, once the student's own CLI has provisioned a namespace,
 // against that namespace -- the control plane's first customer is itself.
@@ -12,6 +13,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -55,6 +57,20 @@ func main() {
 		// applying at once against one worker is a thundering herd of terraform
 		// inits, not a demonstration of scale.
 		MaxConcurrentActivityExecutionSize: 8,
+
+		// Send heartbeats at most every 10s, rather than the SDK's default of
+		// 80% of the activity's HeartbeatTimeout.
+		//
+		// This is the setting that makes a short HeartbeatTimeout safe. Left
+		// alone, a 30s timeout throttles sends to 24s and leaves a 6s margin --
+		// one dropped RPC from a spurious timeout, which reschedules the activity
+		// while the original terraform is still unwinding from its SIGINT. Two
+		// applies against one state file is precisely what the workflow-id lock
+		// cannot protect against, because both are the same workflow.
+		//
+		// Capping it here decouples detection speed from the safety margin: 30s
+		// timeout, 10s sends, three missed beats before anything is declared dead.
+		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})
 	platform.Register(w, platform.NewActivities(cfg, vault))
 

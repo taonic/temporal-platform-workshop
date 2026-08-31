@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -uo pipefail
+# shellcheck disable=SC1091
+source /etc/workshop/env
+# The graders read the student's own checkout -- specs/, terraform/ and the
+# scripts below are all relative to it -- and Instruqt runs a check script from
+# wherever it likes. Without this, every one of them fails at `ls specs/*.yaml`
+# with "no such file or directory", which reads as "you never wrote a spec".
+cd "${WORKSHOP_DIR:-/workspace/platform}" || exit 1
+
+# No `workshop exec` helper here on purpose: every Temporal call below is made
+# with the WORKER's credential, read from the Vault path the platform wrote. See
+# the note above the poller check for why the platform's own key cannot do it.
+fail() { echo "$1" >&2; exit 1; }
+# -n: the worker gets its own Kubernetes namespace, named after the spec, rather
+# than landing in whatever "default" happens to be.
+K="sudo k3s kubectl -n orders"
+
+CFG=worker/worker-config.json
+[ -f "$CFG" ] || fail "No $CFG. Run: tpctl worker gen-config --out $CFG"
+
+# The config must have been generated, not written: queues have to match the code.
+QUEUES=$(jq -r '.taskQueues | join(",")' "$CFG")
+grep -q "task_queue=\"${QUEUES%%,*}\"" worker/workflows/*.py \
+  || fail "Config task queue '${QUEUES%%,*}' does not appear in any decorator. Regenerate it."
+
+$K get deploy orders-staging-worker >/dev/null 2>&1 \
+  || fail "No orders-staging-worker deployment. Apply the generated manifest."
+
+READY=$($K get deploy orders-staging-worker -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+[ "${READY:-0}" -ge 1 ] || fail "The worker pod is not ready. Check: $K logs -l app=orders-staging-worker"
+
+# No credential in the manifest or the pod spec. The whole point of the Vault path.
+if $K get deploy orders-staging-worker -o json | jq -e '
+  .spec.template.spec.containers[].env[]? | select(.name=="TEMPORAL_API_KEY")' >/dev/null 2>&1; then
+  fail "TEMPORAL_API_KEY is set in the deployment. The worker must read it from Vault, not receive it."
+fi
+
+# Kubernetes auth, not a copied token.
+$K get deploy orders-staging-worker -o json | jq -e '
+  .spec.template.spec.containers[].env[]? | select(.name=="VAULT_K8S_ROLE")' >/dev/null 2>&1 \
+  || fail "VAULT_K8S_ROLE is not set. The pod must authenticate to Vault as its ServiceAccount."
+
+# It is polling, and the poller is real: ask Temporal, not the pod.
+#
+# A ready pod proves the process started. Only a poller on the queue proves it
+# reached Temporal -- that the credential resolved, the address was right for the
+# region, and the server is holding a long poll open for it. Every failure in this
+# challenge lives in that gap.
+#
+# Asked with the WORKER's credential, read from the Vault path the platform wrote.
+# The platform's own key cannot do this: it is a Developer service account with
+# management rights on the namespace, not data-plane access to it, and asking with
+# it returns PERMISSION_DENIED against a namespace that is plainly there.
+SPEC=$(ls specs/*.yaml | grep -v _example | head -1)
+NAME=$(grep '^name:' "$SPEC" | awk '{print $2}')
+VAULT_PATH="secret/namespaces/${WORKSHOP_USERNAME}/${NAME}/staging"
+
+CRED=$(vault kv get -format=json "$VAULT_PATH" 2>/dev/null) \
+  || fail "No credential at $VAULT_PATH. Has the reconciler provisioned $NAME yet?"
+
+# The fully qualified name and the regional address both come from the secret the
+# mint activity wrote, so this cannot disagree with what the worker itself uses.
+NS=$(echo "$CRED"  | jq -r '.data.data.namespace')
+# Derived from the namespace, not read from anywhere. Temporal Cloud publishes a
+# per-namespace endpoint, so this cannot disagree with the namespace it addresses
+# -- unlike $TEMPORAL_ADDRESS, which is the CONTROL PLANE's region and answers
+# "Request unauthorized" for a namespace that lives somewhere else.
+ADDR="${NS}.tmprl.cloud:7233"
+KEY=$(echo "$CRED"  | jq -r '.data.data.api_key')
+
+# --env-file /dev/null: the temporal CLI reads ~/.config/temporalio/temporal.yaml
+# and its default profile beats the flags below.
+POLLERS=$(temporal --env-file /dev/null task-queue describe \
+  --task-queue "${QUEUES%%,*}" --namespace "$NS" --address "$ADDR" --api-key "$KEY" \
+  -o json 2>/dev/null | jq -r '[.pollers[]?] | length')
+[ "${POLLERS:-0}" -ge 1 ] \
+  || fail "No pollers on ${QUEUES%%,*} in $NS. The pod is up but not connected -- check: $K logs deploy/orders-staging-worker"
+
+# And the student actually used it.
+#
+# Pollers prove the worker reached Temporal. They do not prove anyone ran anything
+# through it -- the workflow could fail to deserialise its input, the activity
+# could be registered on a different queue, the image could be one build stale.
+#
+# Checked by LOOKING for the student's execution rather than by running one here.
+# A grader that starts its own workflow grades itself: it would pass for a student
+# who deployed a worker and never called it, which is the one thing this challenge
+# is actually about. Any completed execution of the configured type counts, so a
+# student who used their own --workflow-id still passes.
+WF=$(jq -r '.workflows[0].name' "$CFG")
+DONE=$(temporal --env-file /dev/null workflow list --limit 1 \
+  --namespace "$NS" --address "$ADDR" --api-key "$KEY" \
+  --query "WorkflowType = '$WF' AND ExecutionStatus = 'Completed'" \
+  -o json 2>/dev/null | jq -r 'length')
+
+[ "${DONE:-0}" -ge 1 ] || fail "No completed $WF in $NS.
+The worker is deployed and polling, but nothing has run through it. Start one:
+  temporal workflow execute --type $WF --task-queue ${QUEUES%%,*} \\
+    --workflow-id my-first-workflow --input '\''\"workshop\"'\'' \\
+    --namespace $NS --address $ADDR \\
+    --api-key \"\$(vault kv get -field=api_key $VAULT_PATH)\""
+
+echo "ok: worker deployed to k3s, ${POLLERS} poller(s) on ${QUEUES%%,*} in $NS, credential via Kubernetes auth, $WF ran to completion"

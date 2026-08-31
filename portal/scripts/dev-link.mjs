@@ -2,10 +2,10 @@
 /**
  * Print the links a developer needs, before `next dev` takes over the terminal.
  *
- * A student never types a URL -- their sandbox prints one with all four values in
- * it. Locally there is no sandbox, so this does the same job: it loads the same
- * env cascade Next will load, derives a participant token with the same HMAC the
- * state service uses, and prints ready-to-click links.
+ * A student never assembles a URL: the sandbox prints a bare /join link, they pick
+ * a username there, and the portal hands back a personalised one. Locally there is
+ * no sandbox and usually no Authentik, so this skips the join and derives the same
+ * link directly -- same env cascade Next loads, same HMAC the portal uses.
  *
  * Run standalone at any time with `pnpm link:lab`.
  */
@@ -20,8 +20,7 @@ loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.error });
 
 const port = process.env.PORT ?? '3000';
 const origin = `http://localhost:${port}`;
-const participant = process.env.DEV_PARTICIPANT ?? 'p-dev';
-const slot = process.env.DEV_SLOT ?? '7';
+const username = process.env.DEV_USERNAME ?? 'dev';
 
 const code = process.env.PORTAL_LINK_CODE;
 const secret = process.env.PORTAL_SHARED_SECRET;
@@ -42,11 +41,12 @@ if (!code || !secret) {
   process.exit(0);
 }
 
-const token = createHmac('sha256', secret).update(participant).digest('hex').slice(0, 40);
-const query = `k=${encodeURIComponent(code)}&p=${encodeURIComponent(participant)}&t=${token}&slot=${slot}`;
+const token = createHmac('sha256', secret).update(username).digest('hex').slice(0, 40);
+const query = `k=${encodeURIComponent(code)}&u=${encodeURIComponent(username)}&t=${token}`;
 
-console.log(`  ${bold('Lab links')} ${dim(`- participant ${participant}, slot ${slot}`)}`);
+console.log(`  ${bold('Lab links')} ${dim(`- ${username}`)}`);
 console.log();
+console.log(`  ${dim('join      ')} ${teal(`${origin}/join?k=${encodeURIComponent(code)}`)}`);
 console.log(`  ${dim('overview  ')} ${teal(`${origin}/?${query}`)}`);
 for (const n of [1, 2, 3, 4, 5]) {
   console.log(`  ${dim(`lab ${n}     `)} ${teal(`${origin}/lab/${n}?${query}`)}`);

@@ -8,7 +8,7 @@ Two inputs, both already the source of truth for what they describe:
 Nothing is hand-listed, so the config cannot drift from either. Run through the
 CLI facade rather than directly:
 
-    nsctl worker gen-config --out generated/worker-config.json
+    tpctl worker gen-config --out worker-config.json
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def default_spec_path() -> Path:
     if not candidate.is_file():
         raise SystemExit(
             f"no spec at {candidate}. The code declares namespace {declared[0]!r};\n"
-            f"create it with: nsctl new --name {declared[0]}"
+            f"create it with: tpctl new --name {declared[0]}"
         )
     return candidate
 

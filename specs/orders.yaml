@@ -1,15 +1,14 @@
-# Namespace spec for "orders", owned by t.
+# Namespace spec for "orders", owned by payments-team.
 #
 # Committing this file is how you ask the platform for something. The reconciler
 # is signalled by the post-commit hook and also re-reads this directory on a
 # timer, so a change here converges either way -- and a change made behind the
 # platform's back in the Cloud UI gets corrected on the next timer tick.
 name: orders
-owner: t
+owner: payments-team
 tier: standard
 retentionDays: 7
 region: aws-us-east-1
 environments:
     - staging
-    - prod
-stateBackend: http
+stateBackend: local

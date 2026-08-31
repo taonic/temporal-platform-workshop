@@ -42,9 +42,9 @@ type ApplyInput struct {
 	// This is the demo's best trick and it matters more here than it did there. A
 	// successful apply whose state write then fails leaves real resources that
 	// state has never heard of; the next attempt would try to create them again
-	// and fail on a name conflict. Importing first re-adopts them. The workshop's
-	// state service is a single machine, which makes that window wider than the
-	// original S3 design's, so this is not theoretical.
+	// and fail on a name conflict. Importing first re-adopts them. A local state
+	// file makes that window narrow, not absent -- a sandbox torn down mid-apply
+	// loses the write and keeps the namespace -- so this is not theoretical.
 	AttemptImport map[string]string
 }
 

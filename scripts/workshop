@@ -1,0 +1,592 @@
+#!/usr/bin/env bash
+# Point this machine at Temporal Cloud, and fill in the Terraform variables the
+# challenge-1 bootstrap needs.
+#
+# Run it by path -- ./scripts/workshop -- from the repo root, in the sandbox
+# and on a laptop alike. Nothing needs to be on PATH.
+#
+# `./scripts/workshop` on its own lists every verb -- and so does `make help`,
+# which prints this script's list rather than keeping a second one. The Makefile
+# targets are reachable here too (`workshop check`, `workshop up`, ...), so a
+# student never has to know which half of the workshop is Make.
+#
+# Ported from temporal-cloud-training-portal's `workshop-creds`, with one
+# deliberate difference. That one writes TEMPORAL_CLOUD_API_KEY into a sourced
+# env file; this one does NOT. The key lives in Vault and nowhere else here, so
+# `exec` puts it in the environment of a single command and lets it die there —
+# the same lifetime the Terraform activity gives itself, and the reason a student
+# running `history` finds nothing.
+#
+# Instruqt and a laptop take the same path: every value falls back from an
+# argument, to the environment, to a prompt. Nothing here requires a TTY unless
+# a value is genuinely missing.
+#
+# The API key is the exception, and only the exception: it comes from `--key` or a
+# prompt, never from the environment. See acquire_key.
+set -euo pipefail
+
+# /etc/workshop/env in the sandbox, ~/.workshop-env on a laptop. Instruqt runs as
+# root and sources the former from .bashrc; a laptop should not need sudo to run
+# a lab.
+default_env_file() {
+  if [ -w /etc/workshop ] 2>/dev/null || [ "$(id -u)" = 0 ]; then
+    echo /etc/workshop/env
+  else
+    echo "$HOME/.workshop-env"
+  fi
+}
+ENV_FILE="${WORKSHOP_ENV_FILE:-$(default_env_file)}"
+
+# So `make -C` and the printed next-steps work from any directory, not only the
+# repo root. Resolved from the script's own path rather than $PWD.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+ask() { # ask VAR "prompt" [default]
+  local var=$1 prompt=$2 def=${3:-} cur=${!1:-} ans
+  [ -n "$cur" ] && { printf -v "$var" '%s' "$cur"; return; }
+  if [ ! -t 0 ]; then
+    [ -n "$def" ] || { echo "ERROR: $var is unset and there is no terminal to ask on." >&2; exit 1; }
+    printf -v "$var" '%s' "$def"; return
+  fi
+  read -r -p "$prompt${def:+ [$def]}: " ans
+  printf -v "$var" '%s' "${ans:-$def}"
+}
+
+# Vault runs as a pod on k3s, reachable on the NodePort that deploy/platform/
+# vault.yaml pins. Defaulted here rather than assumed from the environment,
+# because `exec` is the first thing a student runs on a laptop and nothing has
+# sourced an env file yet.
+VAULT_NODEPORT="${VAULT_NODEPORT:-30820}"
+export VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:$VAULT_NODEPORT}"
+export VAULT_TOKEN="${VAULT_TOKEN:-${VAULT_DEV_ROOT_TOKEN_ID:-dev}}"
+
+# The key, from wherever it actually is. Vault first: that is where this
+# workshop keeps it, and preferring the environment would quietly reward leaving
+# it lying around in a shell.
+cloud_key() {
+  if command -v vault >/dev/null 2>&1 &&
+     vault kv get -field=api_key secret/platform/cloud-api-key 2>/dev/null; then
+    return
+  fi
+  if [ -n "${TEMPORAL_CLOUD_API_KEY:-}" ]; then
+    printf '%s' "$TEMPORAL_CLOUD_API_KEY"; return
+  fi
+  # Being asked for a key is an ERROR STATE, not a step. Say so, or a student
+  # types their key at a prompt the lab never mentioned and never learns that
+  # Vault -- the whole point of the exercise -- was empty.
+  {
+    echo
+    echo "The platform's Cloud API key is not in Vault at secret/platform/cloud-api-key,"
+    echo "and \$TEMPORAL_CLOUD_API_KEY is unset. Normally provisioning put it there:"
+    echo
+    echo "  ./scripts/workshop base-up"
+    echo
+    echo "Checked: $VAULT_ADDR"
+  } >&2
+  if [ -t 0 ]; then
+    read -r -s -p "Or paste one now to carry on (not echoed): " k; echo >&2
+    printf '%s' "$k"; return
+  fi
+  echo "ERROR: no terminal to ask on." >&2
+  exit 1
+}
+
+# Rewrite our own block in the env file, from stdin.
+#
+# Delimited and rewritten rather than appended, so re-running is idempotent and a
+# changed value does not leave two answers in the file. Both halves of `init` write
+# through here: the key half writes the Vault coordinates alone, the variables half
+# writes the lot.
+# Replace one named block in the env file, leaving every other line alone.
+#
+# There are two writers and they must not tread on each other. `init --username
+# ...` writes the identity and TF_VAR_* lines; `init --api-key` writes the Vault
+# address. They used to share a single block, which meant re-seeding a key --
+# something you do whenever the cluster is rebuilt, because a fresh Vault is an
+# empty one -- silently deleted the username, cohort, region and TEMPORAL_ADDRESS
+# the other path had written. Nothing said so. The failure surfaced later and
+# somewhere else, as tpctl dialling localhost instead of Cloud.
+#
+# The markers are anchored with $ so that "# >>> workshop" does not also match
+# "# >>> workshop vault" and delete the block it was told to leave alone.
+rewrite_env_block() {
+  local name="${1:-}" open close
+  if [ -n "$name" ]; then
+    open="# >>> workshop $name"; close="# <<< workshop $name"
+  else
+    open="# >>> workshop"; close="# <<< workshop"
+  fi
+
+  mkdir -p "$(dirname "$ENV_FILE")"
+  local tmp; tmp=$(mktemp)
+  sed "\%^$open\$%,\%^$close\$%d" "$ENV_FILE" 2>/dev/null > "$tmp" || true
+  { echo "$open"; cat; echo "$close"; } >> "$tmp"
+  mv "$tmp" "$ENV_FILE"; chmod 600 "$ENV_FILE"
+}
+
+# Vault is a pod; this is its NodePort, not the 8200 a host Vault would use. Written
+# by BOTH halves, because the labs run `vault kv get` by hand from the very first
+# step -- and a bare `vault kv get` with no VAULT_ADDR defaults to https://127.0.0.1:8200
+# and fails with "http: server gave HTTP response to HTTPS client", which reads as a
+# TLS problem rather than an unset variable.
+vault_env_lines() {
+  echo "# Vault, and the PATH entry -- everything \`init\` can write without being"
+  echo "# told who you are. The identity block above needs --username; this does not,"
+  echo "# which is why \`init --api-key\` on its own still leaves you a working shell."
+  echo "export VAULT_ADDR=$VAULT_ADDR"
+  echo "export VAULT_TOKEN=$VAULT_TOKEN"
+  # So `tpctl` is a command rather than a path. `workshop build` puts it in bin/,
+  # and the sandbox pre-builds it to /usr/local/bin -- this line is what lets both
+  # environments type the same thing. Single-quoted $PATH so it expands when the
+  # file is sourced, not when it is written.
+  echo "export PATH=\"$REPO_ROOT/bin:\$PATH\""
+}
+
+# `init` has two halves and does whichever it was given inputs for.
+#
+#   init --api-key <key>                       the key, into Vault
+#   init --username <u> --cohort <c> --region <r>   the Terraform variables
+#   init                                       both, asking for everything
+#
+# They are separable because they are needed at different moments. The key has to
+# exist and be provably working before anything is built on it; the TF_VAR_*
+# variables are meaningless until there is a module to feed. Challenge 1 does them
+# in that order, several steps apart, and a student who runs the second one has
+# already watched the first one authenticate.
+# The account id, decoded from the API key rather than asked for.
+#
+# Every Temporal Cloud API key carries `account_id` in its JWT claims, which is
+# the same five-or-six characters that suffixes every namespace id. Reading it
+# from the key we already have means the fully qualified name -- <ns>.<account> --
+# can be written at init time, and nothing has to go and look it up after the
+# apply. Quiet on failure: the caller decides what an absent account means.
+account_id() {
+  local key="${KEY:-}"
+  if [ -z "$key" ] && command -v vault >/dev/null 2>&1; then
+    key=$(vault kv get -field=api_key secret/platform/cloud-api-key 2>/dev/null || true)
+  fi
+  [ -n "$key" ] || return 1
+  printf '%s' "$key" | python3 -c '
+import sys, base64, json
+parts = sys.stdin.read().strip().split(".")
+if len(parts) != 3: raise SystemExit(1)
+pad = parts[1] + "=" * (-len(parts[1]) % 4)
+acct = json.loads(base64.urlsafe_b64decode(pad)).get("account_id")
+if not acct: raise SystemExit(1)
+print(acct)
+' 2>/dev/null
+}
+
+cmd_init() {
+  if [ "$WANT_KEY" -eq 1 ] || [ "$WANT_ENV" -eq 0 ]; then
+    acquire_key
+    seed_key "$KEY"
+    if [ "$WANT_ENV" -eq 0 ] && [ "$WANT_KEY" -eq 1 ]; then
+      vault_env_lines | rewrite_env_block vault
+      echo "    $ENV_FILE has your Vault address"
+      echo
+      echo "Now prove the key in Vault is the one you just made:"
+      echo "  source \"\$($0 env-file)\""
+      echo "  temporal cloud whoami \\"
+      echo "    --api-key \"\$(vault kv get -field=api_key secret/platform/cloud-api-key)\""
+      return
+    fi
+    echo
+  fi
+
+  cmd_init_env
+}
+
+# The Terraform variables half.
+cmd_init_env() {
+  ask WORKSHOP_USERNAME  "Your workshop username"  ""
+  ask WORKSHOP_COHORT    "Cohort id"               "local"
+  ask CONTROL_REGION     "Region for the control plane" "aws-ap-southeast-2"
+  ask CONTROL_RETENTION  "Retention in days"       "1"
+
+  # The same rule the portal enforces at the join screen and tpctl enforces at the
+  # shell. It is not cosmetic: the username becomes part of a namespace name, and
+  # Cloud caps those at 39 characters of lower-case letters, digits and hyphens.
+  if ! printf '%s' "$WORKSHOP_USERNAME" | grep -Eq '^[a-z][a-z0-9-]{1,13}$'; then
+    echo "ERROR: username must be 2-14 characters, lower-case letters, digits and dashes," >&2
+    echo "       starting with a letter. Got: ${WORKSHOP_USERNAME:-<empty>}" >&2
+    exit 1
+  fi
+
+  # The control plane's namespace. Derived from the username by default -- one
+  # name to remember, and it matches the ws-<username>-... shape everything the
+  # platform makes -- but nameable outright, because the workshop is not the only
+  # place this runs and "the namespace" is a thing an operator should be able to
+  # say plainly rather than spell through someone's handle.
+  CONTROL_NS="${CONTROL_NS:-ws-$WORKSHOP_USERNAME-control}"
+  # Cloud's own rule: 2-39 characters, lower-case letters, digits and hyphens,
+  # starting with a letter and ending with a letter or digit. Checked here rather
+  # than left to the apply, where it arrives as a provider error halfway through.
+  if ! printf '%s' "$CONTROL_NS" | grep -Eq '^[a-z][a-z0-9-]{0,37}[a-z0-9]$'; then
+    echo "ERROR: --namespace must be 2-39 characters, lower-case letters, digits and" >&2
+    echo "       hyphens, starting with a letter. Got: ${CONTROL_NS:-<empty>}" >&2
+    exit 1
+  fi
+
+  # The gRPC endpoint is DERIVED from the region, not defaulted alongside it.
+  # These two must agree: a control namespace in ap-southeast-2 reached at the
+  # us-west-2 endpoint simply is not found, and the error says "namespace not
+  # found" rather than "wrong region" -- which sends a student looking at their
+  # Terraform instead of their address. `aws-ap-southeast-2` -> the cloud is the
+  # prefix, the rest is the region.
+  case "$CONTROL_REGION" in
+    aws-*|gcp-*|azure-*)
+      CONTROL_CLOUD="${CONTROL_REGION%%-*}"
+      CONTROL_ADDRESS="${CONTROL_REGION#*-}.${CONTROL_CLOUD}.api.temporal.io:7233" ;;
+    *)
+      echo "ERROR: region must look like aws-ap-southeast-2 -- cloud, then region." >&2
+      echo "       Got: ${CONTROL_REGION:-<empty>}" >&2
+      exit 1 ;;
+  esac
+  # An explicit address still wins: non-production Cloud environments do not
+  # follow this naming, and this script should not be the thing standing in the way.
+  CONTROL_ADDRESS="${TEMPORAL_ADDRESS:-$CONTROL_ADDRESS}"
+
+  # The fully qualified namespace, if the key is available to say which account.
+  # Written here so nothing has to read it back out of Terraform state later.
+  # TEMPORAL_NAMESPACE only, and only as a convenience: it is what lets a bare
+  # `temporal workflow show` talk to the control plane rather than to "default".
+  #
+  # CONTROL_NAMESPACE is deliberately NOT written here any more. It used to be,
+  # and it was the wrong source twice over. This runs BEFORE challenge 1's apply,
+  # so the namespace does not exist yet and the value is a prediction; and the
+  # account id has to come from the key in Vault, which needs a VAULT_ADDR this
+  # very file has not been sourced to provide. `workshop platform-up` now reads
+  # the name out of Terraform, which knows what was actually created.
+  CONTROL_NAMESPACE_LINES=""
+  local acct; acct=$(account_id || true)
+  if [ -n "$acct" ]; then
+    CONTROL_NAMESPACE_LINES="export TEMPORAL_NAMESPACE=$CONTROL_NS.$acct"
+  else
+    echo "  note: could not read the account id, so TEMPORAL_NAMESPACE is unset." >&2
+    echo "        Either no key is in Vault yet (run \`$0 init --api-key\`), or this" >&2
+    echo "        shell cannot reach Vault (run \`source \"\$($0 env-file)\"\` and re-run)." >&2
+    echo "        Nothing downstream needs it: it only saves typing --namespace." >&2
+  fi
+
+  {
+    cat <<INNER
+# TF_VAR_<name> is how Terraform reads a variable from the environment, so the
+# challenge-1 bootstrap is a bare \`terraform apply\` with no flags to mistype.
+# None of these is a secret; the API key is deliberately absent -- see \`exec\`.
+export WORKSHOP_USERNAME=$WORKSHOP_USERNAME
+export WORKSHOP_COHORT=$WORKSHOP_COHORT
+export TF_VAR_namespace_name=$CONTROL_NS
+$CONTROL_NAMESPACE_LINES
+export TF_VAR_region=$CONTROL_REGION
+export TF_VAR_retention_days=$CONTROL_RETENTION
+export TEMPORAL_ADDRESS=$CONTROL_ADDRESS
+INNER
+  } | rewrite_env_block
+  vault_env_lines | rewrite_env_block vault
+  echo "Wrote $ENV_FILE"
+  echo
+  echo "Next:"
+  echo "  source \"\$($0 env-file)\""
+}
+
+# The key comes from --key, or from a prompt. Deliberately NOT from
+# $TEMPORAL_CLOUD_API_KEY: an inherited environment variable is invisible at the
+# call site, so this would silently seed whatever happened to be exported in that
+# shell -- a stale key from another account, most likely -- and report success.
+# One explicit source, or ask.
+#
+# Sets KEY rather than echoing it, because `exit` inside a $(command substitution)
+# only leaves the subshell: an empty key would carry on to be seeded.
+KEY=""
+acquire_key() {
+  KEY="$API_KEY"
+  if [ -z "$KEY" ]; then
+    if [ -t 0 ]; then
+      # -p writes the prompt to stderr, so this stays legible when stdout is piped.
+      read -r -s -p "Paste the platform service account's API key (not echoed): " KEY
+      echo >&2
+    else
+      echo "ERROR: no key, and no terminal to ask on. Pass --api-key <key>." >&2
+      exit 1
+    fi
+  fi
+  [ -n "$KEY" ] || { echo "ERROR: empty key." >&2; exit 1; }
+}
+
+# Seeding the key is unconditional; building the cluster is not.
+#
+# Two environments, one path. The Instruqt sandbox arrives with k3s running and
+# every image already in its store, but with NO Vault: Vault runs in dev mode, so
+# a Vault seeded during the preset build loses its contents when the snapshot
+# boots, and the prebuild does not pretend otherwise. On a laptop the cluster may
+# not be up either. Either way this is the first command of the day, so it has to
+# be the thing that builds whatever is missing.
+#
+# So: if a Vault is answering, seed into it and leave the cluster alone -- which
+# is what a re-run, or a rotated key, wants. If not, `make base-up` deploys Vault
+# and its Kubernetes auth and seeds as its own last step.
+seed_key() { # seed_key <key>
+  local key="$1"
+  if command -v vault >/dev/null 2>&1 && vault status >/dev/null 2>&1; then
+    echo "==> Vault is already up at $VAULT_ADDR -- seeding the key only"
+    vault kv put secret/platform/cloud-api-key api_key="$key" >/dev/null
+    echo "    secret/platform/cloud-api-key written"
+    echo
+    # Only the key was touched. Saying "k3s is not started here" was wrong on any
+    # laptop where the cluster is already up -- which is every laptop that got as
+    # far as having a reachable Vault, since Vault runs in it.
+    echo "    Nothing else changed: this seeds the key and writes the Vault address,"
+    echo "    and leaves your username, region and TF_VAR_* lines alone."
+    return
+  fi
+
+  echo "==> no Vault reachable at $VAULT_ADDR -- bringing up k3s, Vault and k8s auth"
+  # -C the repo root, so this works from anywhere rather than only from the root.
+  TEMPORAL_CLOUD_API_KEY="$key" make -C "$REPO_ROOT" base-up
+}
+
+# The same bootstrap `init` ends with, on its own -- for re-seeding a rotated key,
+# or repairing a Vault that lost one, without rewriting the env file.
+cmd_base_up() {
+  acquire_key
+  seed_key "$KEY"
+}
+
+# One value out of the env file, for filling a gap rather than overriding a
+# choice. Only the managed blocks are consulted, so a hand-added line below them
+# is never silently promoted into a command's environment.
+env_file_value() {
+  [ -f "$ENV_FILE" ] || return 0
+  sed -n "/^# >>> workshop/,/^# <<< workshop/p" "$ENV_FILE" 2>/dev/null \
+    | sed -n "s/^export $1=//p" | tail -1 | tr -d '"'
+}
+
+cmd_exec() {
+  [ "${1:-}" = "--" ] && shift
+  [ $# -gt 0 ] || { echo "usage: workshop exec -- <command>" >&2; exit 2; }
+
+  # A credential without an address is a half-configured command.
+  #
+  # The `temporal` CLI turns TLS on when it has an API key, and defaults its
+  # address to localhost:7233. So handing it a key in a shell that never sourced
+  # the env file points it at a plaintext dev server with TLS enabled, and it
+  # fails with "tls: first record does not look like a TLS handshake" -- which
+  # blames the transport for what is a missing variable.
+  #
+  # Filling the gap rather than failing, because that is what exec is for: making
+  # one command work. An address already in the environment always wins.
+  if [ -z "${TEMPORAL_ADDRESS:-}" ]; then
+    TEMPORAL_ADDRESS="$(env_file_value TEMPORAL_ADDRESS)"
+    [ -n "$TEMPORAL_ADDRESS" ] && export TEMPORAL_ADDRESS
+  fi
+  if [ -z "${TEMPORAL_NAMESPACE:-}" ]; then
+    TEMPORAL_NAMESPACE="$(env_file_value TEMPORAL_NAMESPACE)"
+    [ -n "$TEMPORAL_NAMESPACE" ] && export TEMPORAL_NAMESPACE
+  fi
+  # Both names, because they are read by different things: the temporalcloud
+  # Terraform provider wants TEMPORAL_CLOUD_API_KEY, and the `temporal` CLI wants
+  # TEMPORAL_API_KEY. Same key. Setting one and not the other is a confusing
+  # half-working state -- terraform applies, `temporal workflow show` does not.
+  local key; key="$(cloud_key)"
+
+  # The `temporal` CLI reads $HOME/.config/temporalio/temporal.yaml and its
+  # `default` profile BEATS the environment. Anyone who has used the CLI before --
+  # which is most people building a Temporal workshop -- usually has a default
+  # pinned at 127.0.0.1:7233. The result is a command that ignores
+  # TEMPORAL_ADDRESS, dials localhost with TLS enabled by the API key, and fails
+  # with "tls: first record does not look like a TLS handshake": a transport error
+  # for what is a config-precedence problem, and nothing in it names the file.
+  #
+  # --env-file is the only lever that works. --disable-config-file does not, and
+  # there is no environment variable for either; both were tried. Pointing it at
+  # /dev/null makes the CLI hermetic, so the variables set here are the whole
+  # configuration -- which is what a wrapper called `exec` is for.
+  if [ "$(basename "${1:-}")" = "temporal" ]; then
+    local bin="$1"; shift
+    set -- "$bin" --env-file /dev/null "$@"
+  fi
+
+  TEMPORAL_CLOUD_API_KEY="$key" TEMPORAL_API_KEY="$key" exec "$@"
+}
+
+cmd_show() {
+  echo "env file   $ENV_FILE"
+  grep -E '^export (WORKSHOP_USERNAME|WORKSHOP_COHORT|TF_VAR_|TEMPORAL_ADDRESS|CONTROL_NAMESPACE)' "$ENV_FILE" 2>/dev/null ||
+    echo "  (nothing written yet -- run: workshop init)"
+  if command -v vault >/dev/null 2>&1 &&
+     vault kv get -field=api_key secret/platform/cloud-api-key >/dev/null 2>&1; then
+    echo "cloud key  in Vault at secret/platform/cloud-api-key ($VAULT_ADDR)"
+  else
+    echo "cloud key  NOT reachable at $VAULT_ADDR"
+    echo "           (exec will fall back to the env or a prompt)"
+    echo "           is the cluster up, and did 'make base-up' run?"
+  fi
+}
+
+cmd_env_file() { echo "$ENV_FILE"; }
+
+# Flags before the subcommand dispatch: the portal shows a one-line command with
+# the username already in it, and a student on a laptop gets prompted instead.
+# WANT_ENV records that identity flags were given, which is what lets `init` do
+# only the half it was asked for. Challenge 1 calls it twice on purpose: the key
+# first, so it can be proved working before anything depends on it, and the
+# Terraform variables later, once there is a module for them to feed.
+API_KEY=""
+CONTROL_NS=""
+WANT_KEY=0
+WANT_ENV=0
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --username) WORKSHOP_USERNAME="$2"; WANT_ENV=1; shift 2 ;;
+    --username=*) WORKSHOP_USERNAME="${1#*=}"; WANT_ENV=1; shift ;;
+    --cohort)   WORKSHOP_COHORT="$2"; WANT_ENV=1; shift 2 ;;
+    --cohort=*) WORKSHOP_COHORT="${1#*=}"; WANT_ENV=1; shift ;;
+    --region)   CONTROL_REGION="$2"; WANT_ENV=1; shift 2 ;;
+    --region=*) CONTROL_REGION="${1#*=}"; WANT_ENV=1; shift ;;
+    --namespace)   CONTROL_NS="$2"; WANT_ENV=1; shift 2 ;;
+    --namespace=*) CONTROL_NS="${1#*=}"; WANT_ENV=1; shift ;;
+    # A bare --api-key means "ask me": the value is optional, and leaving it off is
+    # the form the labs use, because a key on the command line is a key in history.
+    --api-key)
+      WANT_KEY=1
+      case "${2:-}" in ""|-*) shift ;; *) API_KEY="$2"; shift 2 ;; esac ;;
+    --api-key=*) WANT_KEY=1; API_KEY="${1#*=}"; shift ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+# The Make targets, reachable as subcommands.
+#
+# One entry point for the whole workshop. A student should not have to remember
+# which half of it is `make` and which half is a script -- especially not while
+# something is broken. These forward verbatim; the Makefile is still where the
+# work is defined, and `make check` keeps working for anyone with it in muscle
+# memory.
+#
+# base-up is deliberately NOT here: it has its own subcommand above, which asks
+# for the key without echoing it and puts it in the environment of that one make
+# invocation rather than in the student's shell history.
+#
+# An explicit list rather than a catch-all, so `workshop chekc` says "unknown
+# command" instead of handing a typo to make and getting "No rule to make target".
+MAKE_TARGETS="check up reload logs vault-forward platform-down down build test lab-test verify"
+
+# platform-up is not a plain make passthrough, because of the flag. Resolution
+# itself lives in deploy/platform/up.sh, so that `make up` and up.sh run directly
+# behave identically -- one implementation, every entry path.
+cmd_platform_up() {
+  local flag_ns=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --control-namespace) flag_ns="${2:-}"; shift 2 ;;
+      --control-namespace=*) flag_ns="${1#*=}"; shift ;;
+      -y|--yes) export WORKSHOP_YES=1; shift ;;
+      *) echo "workshop platform-up: unknown argument \"$1\"" >&2; exit 2 ;;
+    esac
+  done
+  if [ -n "$flag_ns" ]; then
+    CONTROL_NAMESPACE="$flag_ns" exec make -C "$REPO_ROOT" platform-up
+  fi
+  exec make -C "$REPO_ROOT" platform-up
+}
+
+# The one list of verbs in the workshop. `make help` prints this rather than
+# keeping a second copy that drifts from it.
+usage() {
+  cat <<'USAGE'
+usage: ./scripts/workshop <command>
+
+Every command is safe to re-run. Run them from the repo root.
+
+Setting this machine up  (challenge 1, in this order)
+  init --api-key            Ask for your Temporal Cloud API key, without echoing
+                            it, and write it to Vault at
+                            secret/platform/cloud-api-key. Brings up k3s and
+                            Vault first if they are not already running. This is
+                            the only time you handle the key: every command after
+                            it reads that Vault path.
+  init --username <u> --cohort <c> --region <r> [--namespace <n>]
+                            Write the TF_VAR_* variables Terraform reads, plus
+                            your Vault address and the Cloud endpoint for that
+                            region, to an env file. Prints nothing secret. Run
+                            `source "$(./scripts/workshop env-file)"` afterwards
+                            to load them into your shell. The control plane's
+                            namespace defaults to ws-<username>-control;
+                            --namespace names it outright instead.
+  init                      Both halves, prompting for anything not passed.
+
+Running the control plane  (challenge 2 onwards)
+  platform-up [--control-namespace <ns>] [-y|--yes]
+                            Build the worker image, load it into k3s, and deploy
+                            the control plane onto the namespace challenge 1's
+                            apply created. The name is read from Terraform's
+                            namespace_id output, so there is nothing to export
+                            and nothing to keep in sync; --control-namespace
+                            overrides it. Brings Vault and Kubernetes auth up too
+                            if the cluster is missing them.
+                            Every step announces what it is about to do and waits
+                            for a keypress; -y skips the waiting, and so does any
+                            non-interactive run.
+  reload                    Rebuild and roll the worker after editing any Go the
+                            image contains. The pod runs a compiled copy, so
+                            editing a file changes nothing until this runs.
+  logs                      Follow the control plane's logs.
+  up                        base-up and platform-up together.
+  base-up                   Re-seed the Cloud API key on its own, after rotating
+                            it. `init --api-key` already did this once.
+
+Getting things done
+  exec -- <cmd>             Run <cmd> with the Cloud API key from Vault in its
+                            environment, and only for that one command. This is
+                            how terraform and `temporal cloud` get a credential
+                            without one ever being written down.
+  check                     Probe tools, cluster, Vault, egress and the control
+                            plane, and print what is missing. `warn` means not
+                            built yet; `FAIL` means broken.
+  show                      Print what the env file holds, and whether Vault has
+                            your key. Never prints the key.
+  env-file                  Print the path of the env file, for `source`.
+
+Build and test
+  build                     Build tpctl and platform-worker into bin/.
+  test, lab-test            Your feedback loop. FAILS until you have done the
+                            labs -- that is the point.
+  verify                    Instructor check: apply the answers, build, test and
+                            validate everything, then restore the stubs.
+
+When something breaks
+  vault-forward             Restart the Vault port-forward if it died.
+  platform-down             Remove the control plane, and only that. Vault and
+                            its Cloud key stay, and so does the Terraform state
+                            for every namespace you have made -- deleting that
+                            would orphan real Cloud namespaces. Quiet: unlike
+                            platform-up it announces nothing.
+  down                      Delete the platform namespace. Takes the control
+                            plane's Terraform state with it; the namespaces it
+                            made stay, and the next apply re-imports them.
+USAGE
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  env-file) shift; cmd_env_file "$@" ;;
+  init)     shift; cmd_init "$@" ;;
+  base-up)  shift; cmd_base_up "$@" ;;
+  platform-up) shift; cmd_platform_up "$@" ;;
+  exec)     shift; cmd_exec "$@" ;;
+  show)     shift; cmd_show "$@" ;;
+  help|-h|--help|"") usage; exit 0 ;;
+  *)
+    for t in $MAKE_TARGETS; do
+      if [ "$cmd" = "$t" ]; then
+        shift
+        exec make -C "$REPO_ROOT" "$cmd" "$@"
+      fi
+    done
+    echo "workshop: unknown command \"$cmd\"" >&2
+    usage >&2
+    exit 2 ;;
+esac

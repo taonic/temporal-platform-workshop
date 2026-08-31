@@ -28,8 +28,3 @@ resource "temporalcloud_service_account" "worker" {
     permission   = "write"
   }
 }
-
-resource "temporalcloud_namespace_tags" "tags" {
-  namespace_id = temporalcloud_namespace.ns.id
-  tags         = var.tags
-}

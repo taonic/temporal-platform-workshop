@@ -32,6 +32,8 @@ const ctx: SnippetContext = {
   username: 'example',
   spec: undefined, // lab 4 falls back to `orders`
   accountId: 'acct1',
+  cohort: 'local',
+  region: 'aws-ap-southeast-2',
   namespacePattern: 'ws-7-orders-<environment>',
   stagingSuffix: 'ws-7-orders-staging',
   prodSuffix: 'ws-7-orders-prod',

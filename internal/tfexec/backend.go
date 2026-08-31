@@ -17,9 +17,10 @@ type Backend interface {
 	ConfigArgs() []string
 }
 
-// LocalBackend keeps state in a file. Not for production -- but it is the only
-// backend a student can debug when the remote service is unreachable, and sandbox
-// egress failures are the single most common workshop complaint.
+// LocalBackend keeps state in a file, and is what the workshop uses. Not a
+// production choice -- but it is the only backend a student can debug with `cat`,
+// it needs no service to be up and no credential to be handed out, and sandbox
+// egress failures were the single most common workshop complaint.
 type LocalBackend struct {
 	Path string
 }
@@ -27,25 +28,6 @@ type LocalBackend struct {
 func (b LocalBackend) BlockName() string { return "local" }
 func (b LocalBackend) ConfigArgs() []string {
 	return []string{"-backend-config=path=" + b.Path}
-}
-
-// HTTPBackend talks to the workshop's own state service: GET to read, POST to
-// write, DELETE to purge. lock_address is intentionally unset.
-type HTTPBackend struct {
-	Address  string
-	Username string
-	Password string
-}
-
-func (b HTTPBackend) BlockName() string { return "http" }
-func (b HTTPBackend) ConfigArgs() []string {
-	return []string{
-		"-backend-config=address=" + b.Address,
-		"-backend-config=update_method=POST",
-		"-backend-config=username=" + b.Username,
-		"-backend-config=password=" + b.Password,
-		// No lock_address / unlock_address. Deliberate. See Backend above.
-	}
 }
 
 // S3Backend exists to prove the interface is real rather than a single

@@ -1,5 +1,6 @@
-# Pinned deliberately. namespace_scoped_access and temporalcloud_namespace_tags
-# both postdate the 0.9 line, and the reconciler depends on them.
+# Pinned deliberately: namespace_scoped_access postdates the 0.9 line and the
+# reconciler depends on it. (temporalcloud_namespace_tags did too, and used to be
+# named here -- the module no longer manages tags at all; see variables.tf.)
 terraform {
   required_version = ">= 1.5"
 

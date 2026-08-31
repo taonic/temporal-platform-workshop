@@ -128,7 +128,7 @@ async function paginate<T>(
  * avoids, accepted knowingly; see DESIGN.md, *Open risks*.
  *
  * Global Admin, per the identity matrix: a student must be able to see namespaces
- * their platform's service account created, and challenge 5 depends on it.
+ * their platform's service account created, from challenge 2 onward.
  *
  * Idempotent by treating "already exists" as success — a returning student runs
  * through this path again and should not see an error for having been here.
@@ -147,7 +147,12 @@ export async function createCloudUser(email: string): Promise<void> {
       accept: 'application/json',
     },
     cache: 'no-store',
-    body: JSON.stringify({ spec: { email, access: { accountAccess: { role: 'admin' } } } }),
+    // ROLE_ADMIN, not 'admin'. `role` is a proto enum and serialises by name in
+    // JSON; the bare string was `role_deprecated`, removed after API v0.3.0 and
+    // rejected by the version this portal pins as `invalid account role`.
+    body: JSON.stringify({
+      spec: { email, access: { accountAccess: { role: 'ROLE_ADMIN' } } },
+    }),
   });
   if (res.ok) return;
 

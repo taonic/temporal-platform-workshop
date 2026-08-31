@@ -125,6 +125,28 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
   background: color-mix(in srgb, var(--surface-table) 40%, transparent);
 }
 
+/* The bare `code` rule above styles INLINE code in prose -- `like this` -- and it
+   must not reach the <code> inside a block. Padding on an inline element applies
+   at the start and end of the whole inline box rather than per line, so
+   `padding: 0.1em 0.34em` pushes the FIRST line of a multi-line command a few
+   pixels right and leaves every continuation line where it is. The background and
+   border-radius paint a second box inside the block for the same reason, and the
+   0.86em compounds with the block's own size.
+   
+   Every <code> inside a <pre>, not just ours. This was scoped to `.code > code`
+   once, to avoid disturbing shiki -- and then command blocks moved to shiki,
+   whose markup is <pre class="shiki"><code>, and the bug came straight back.
+   Resetting only the BOX properties is what makes the wide selector safe: colour
+   and font come from .shiki and its per-token spans, which are untouched. */
+pre code {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
 .code {
   font-family: var(--mono);
   font-size: 0.82rem;
@@ -157,6 +179,16 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
 }
 .step-body { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
 .expect { font-size: 0.9rem; color: var(--muted); }
+
+/* A step whose result is several things. Indented enough to read as a list
+   rather than as more prose, and spaced so a two-line item does not run into
+   the next one. */
+ul.bullets {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+ul.bullets li { margin: 0.3rem 0; }
 
 .badge {
   display: inline-block;
@@ -197,7 +229,44 @@ header.top .wrap { display: flex; flex-direction: column; gap: 0.9rem; padding-t
 }
 .btn:disabled { opacity: 0.55; cursor: default; }
 
+/* The one action on a page that has exactly one. Used as an <a>, so it has to
+   undo the link underline the stylesheet gives every other anchor. */
+.btn-cta {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+.btn-cta:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.btn .spinner { margin-right: 0.45em; }
+
+/* Sized in em so it tracks whatever text it sits beside. The reduced-motion rule
+   below stops the rotation; the label next to it still says what is happening,
+   which is why this is decoration and marked aria-hidden at the call site. */
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  vertical-align: -0.08em;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .notice { border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 0.75rem 0.9rem; font-size: 0.9rem; }
+
+/* The end of a lab. Ruled off, because after the checkpoints the page is over and
+   this is the one thing left to do. */
+.lab-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.5rem;
+}
 
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
@@ -221,6 +290,43 @@ input {
   color: var(--ink);
 }
 
+/* Username field and its fixed domain, rendered as one control. Only the left
+   half is editable, so the border belongs to the pair rather than to the input:
+   a suffix sitting outside a bordered box reads as a second thing to fill in. */
+.input-suffix {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  padding-right: 0.6rem;
+}
+.input-suffix:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Dim the pair, not the half of it that happens to be an <input>. */
+.input-suffix:has(input:disabled) { opacity: 0.55; }
+.input-suffix input {
+  flex: 1;
+  /* Without this a flex item refuses to shrink below its content, and a long
+     domain pushes the field off the side of the card on a narrow screen. */
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  /* No right padding: the caret should land against the @, so what they read is
+     one address rather than a name sitting near a domain. */
+  padding-right: 0;
+}
+.input-suffix input:focus-visible { outline: none; }
+.input-suffix input:disabled { opacity: 1; }
+.input-suffix .suffix {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ---- Snippets ---- */
@@ -241,7 +347,25 @@ input {
   font-weight: 600;
   border-radius: 8px;
 }
-.snippet > summary::marker { color: var(--accent); }
+/* `display: flex` on a <summary> removes the native disclosure triangle in both
+   Chromium and WebKit, so a ::marker rule here never painted and the block read
+   as a static header rather than something you could open. Draw one instead, and
+   turn it on open so the state is visible either way. */
+.snippet > summary { list-style: none; }
+.snippet > summary::-webkit-details-marker { display: none; }
+.snippet > summary::before {
+  content: '';
+  flex: none;
+  align-self: center;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  /* Points right when closed, down when open. */
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.snippet[open] > summary::before { transform: rotate(45deg); }
 .snippet[open] > summary { border-bottom: 1px solid var(--rule); border-radius: 8px 8px 0 0; }
 .snippet-hint { font-weight: 400; font-size: 0.82rem; color: var(--muted); }
 .snippet-body { padding: 0.9rem 0.95rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
@@ -267,3 +391,37 @@ input {
 .snippet-instep .shiki { background: var(--surface) !important; }
 
 ::selection { background: rgba(68, 76, 231, 0.35); }
+
+
+/* Copy button, top right of a command block.
+   The wrapper is positioned so the button can sit over the block without taking
+   part in its scrolling: .code scrolls horizontally, and a button inside it would
+   slide away from a long command exactly when it is most wanted. Padding on the
+   right of .code keeps the first line from running under it. */
+.code-wrap { position: relative; }
+/* Room for the button, on whichever element actually paints the block. */
+.code-wrap .code,
+.code-wrap .shiki { padding-right: 4.2rem; }
+.code-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.code-wrap:hover .code-copy,
+.code-copy:focus-within { opacity: 1; }
+/* Touch and keyboard users get no hover, so never hide it from them. */
+@media (hover: none) {
+  .code-copy { opacity: 1; }
+}
+.code-copy .btn { font-size: 0.7rem; padding: 0.15rem 0.5rem; }
+
+.diagram-svg {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface-2);
+  padding: 0.6rem;
+  overflow-x: auto;
+}
+.diagram-svg svg { display: block; width: 100%; height: auto; }

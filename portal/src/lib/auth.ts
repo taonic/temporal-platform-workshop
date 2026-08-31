@@ -4,9 +4,9 @@ import { config } from '@/config';
 /**
  * A participant's view token, derived rather than stored.
  *
- * Same HMAC scheme as the Terraform state service, deliberately: one shared
- * secret produces every per-participant token in the workshop, so there is no
- * list to keep in sync and the sandbox can derive its own with one openssl call.
+ * Derived from one shared secret rather than stored, so there is no list of
+ * tokens to keep in sync and the dev-link script can compute the same value with
+ * one openssl call.
  *
  * This is a lab aid, not a security boundary -- it stops a student reading
  * another student's progress by editing a URL, and nothing more. The workshop's

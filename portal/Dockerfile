@@ -2,6 +2,10 @@
 # its traced dependencies rather than the whole node_modules tree.
 FROM node:22-alpine AS build
 WORKDIR /app
+# Corepack resolves the pnpm version from package.json's "packageManager" field.
+# Without that pin it fetches the newest pnpm, which cannot read this lockfile
+# (version 6.0, written by pnpm 8) and fails with ERR_PNPM_LOCKFILE_BREAKING_CHANGE.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml ./

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Diagnose and fix the portal's Authentik API token.
+#
+#   AUTHENTIK_TOKEN=... ./scripts/authentik-check            # report
+#   AUTHENTIK_TOKEN=... ./scripts/authentik-check --fix      # grant what is missing
+#
+# Authentik answers every auth failure with 403, so the status code cannot tell a
+# missing token from a missing permission. The body can, and that is what this
+# reads. Endpoints are as published by the instance's own /api/v3/schema/.
+set -uo pipefail
+
+URL="${AUTHENTIK_URL:-https://temporal-workshop-authentik.fly.dev}"
+# .env files tend to carry a trailing slash, and `$URL/api/v3/...` then asks for
+# `//api/v3/...`, which Authentik answers with an HTML 404 -- parsed here as a
+# JSON decode error that looks like a broken token rather than a broken URL.
+URL="${URL%/}"
+: "${AUTHENTIK_TOKEN:?set it to an API-intent token -- not the app password from Create Service Account}"
+FIX="${1:-}"
+
+api() { curl -sS -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H 'Content-Type: application/json' "$@"; }
+
+# What the portal calls, plus the one only the ops scripts call. Nothing else.
+#
+# delete_user is not used by the portal -- nothing a student does removes an
+# account -- but workshop-teardown and workshop-user-delete run with this same
+# token, and Authentik refuses a DELETE without it. Left out, a teardown reports
+# success and leaves the cohort in place.
+#
+# view_group and add_user_to_group are for the portal group. Every account joins
+# it, and access is bound to it, so without these a join fails outright rather
+# than producing a student who signs in and gets nowhere.
+NEEDED="authentik_core.add_user authentik_core.view_user authentik_core.change_user authentik_core.reset_user_password authentik_core.delete_user authentik_core.view_group authentik_core.add_user_to_group"
+
+echo "==> who the token belongs to"
+me=$(api "$URL/api/v3/core/users/me/")
+case "$me" in
+  *'"detail"'*)
+      echo "  $me"
+      echo
+      echo "  'Authentication credentials were not provided' -> \$AUTHENTIK_TOKEN is empty"
+      echo "  'Token invalid/expired'                        -> not an API-intent token"
+      exit 1 ;;
+esac
+pk=$(printf '%s' "$me" | python3 -c 'import sys,json; print(json.load(sys.stdin)["user"]["pk"])')
+name=$(printf '%s' "$me" | python3 -c 'import sys,json; print(json.load(sys.stdin)["user"]["username"])')
+echo "  $name (pk $pk)"
+
+echo "==> permissions it holds"
+have=$(api "$URL/api/v3/rbac/permissions/?user=$pk&page_size=200" \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(" ".join(f"{r[\"app_label\"]}.{r[\"codename\"]}" for r in d.get("results",[])))' 2>/dev/null)
+missing=""
+for perm in $NEEDED; do
+  case " $have " in *" $perm "*) echo "  ok   $perm" ;;
+                    *) echo "  MISS $perm"; missing="$missing $perm" ;; esac
+done
+
+if [ -n "$missing" ] && [ "$FIX" = "--fix" ]; then
+  echo "==> granting"
+  body=$(python3 -c 'import json,sys; print(json.dumps({"permissions": sys.argv[1].split()}))' "$missing")
+  api -X POST -d "$body" "$URL/api/v3/rbac/permissions/assigned_by_users/$pk/assign/" && echo "  granted:$missing"
+elif [ -n "$missing" ]; then
+  echo
+  echo "  Re-run with --fix to grant them, or use the UI:"
+  echo "  Directory -> Users -> $name -> Permissions -> Assign to user"
+  exit 1
+fi
+
+# The portal group every account joins. Access is bound to it, so a join that
+# cannot reach it produces a student who signs in and gets nowhere.
+GROUP="${AUTHENTIK_PORTAL_GROUP:-portal}"
+
+echo "==> is there a \"$GROUP\" group?"
+group_uuid=$(api "$URL/api/v3/core/groups/?name=$GROUP" | GROUP="$GROUP" python3 -c 'import os,sys,json
+try: d = json.load(sys.stdin)
+except Exception: raise SystemExit
+if isinstance(d, dict) and "detail" in d: print("ERR:" + d["detail"]); raise SystemExit
+r = [g for g in (d.get("results") or []) if g.get("name") == os.environ["GROUP"]]
+print(r[0]["pk"] if r else "")' 2>/dev/null)
+case "$group_uuid" in
+  ERR:*) echo "  cannot read groups: ${group_uuid#ERR:}"; exit 1 ;;
+  "")    echo "  MISSING -- create it: Directory -> Groups -> Create, named \"$GROUP\""
+         echo "  Every workshop account joins it, so /join fails until it exists."
+         exit 1 ;;
+  *)     echo "  ok   $GROUP ($group_uuid)" ;;
+esac
+
+echo "==> can it actually create a user and put it in the group?"
+probe="probe-$$"
+out=$(api -X POST -d "{\"username\":\"$probe\",\"name\":\"$probe\"}" "$URL/api/v3/core/users/")
+case "$out" in
+  *'"pk"'*) id=$(printf '%s' "$out" | python3 -c 'import sys,json; print(json.load(sys.stdin)["pk"])')
+            # 204 on success, so there is no body to match on -- read the status.
+            code=$(api -o /dev/null -w '%{http_code}' -X POST -d "{\"pk\": $id}" \
+              "$URL/api/v3/core/groups/$group_uuid/add_user/")
+            api -X DELETE "$URL/api/v3/core/users/$id/" >/dev/null
+            case "$code" in
+              2*) echo "  created $probe, added it to $GROUP, deleted it -- the portal will work" ;;
+              *)  echo "  FAILED: adding to $GROUP returned $code"
+                  echo "  The token needs authentik_core.add_user_to_group."; exit 1 ;;
+            esac ;;
+  *)        echo "  FAILED: $out"; exit 1 ;;
+esac
