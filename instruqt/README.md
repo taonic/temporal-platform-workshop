@@ -63,32 +63,148 @@ instruqt sandbox push                       # writes a DRAFT. Nothing is live ye
 instruqt sandbox publish --message "why"    # builds the image, makes it live
 ```
 
-Push and publish are separate on purpose, and only the second one costs real
-time. `push` uploads; `publish` is what runs
-`scripts/setup-platform-workshop` to build the image every student then boots
-from. **A failed prebuild fails the publish**, and the build log is the only place
-its output appears — so a `FAIL` line from the egress probes or the image
-assertions surfaces here, once, rather than in front of a room.
+Push and publish are separate on purpose: `push` uploads to a draft, `publish`
+makes that draft the version runs will use. **Neither of them builds anything** —
+both return in about a second.
+
+That is the thing to get straight, because it decides where the setup script's
+output goes. `scripts/setup-platform-workshop` runs when a **sandbox starts**, once
+per run, on the machine itself — not at publish time. So its log lines carry a run
+id and arrive through `instruqt track logs` or a `track test`, and its whole
+runtime is time a student spends watching `loadingMessages`. A `FAIL` from the
+egress probes or the image assertions aborts that run's setup, which is why they
+are worth having: the run stops with a named cause instead of handing someone a
+half-built box.
 
 `push` refuses when there is nothing to send; `--force` overrides that.
+
+### What the setup script can and cannot see
+
+Two things about `scripts/setup-platform-workshop` that are not obvious and cost a
+failed publish each:
+
+**The `environment:` block in `config.yml` is not in scope for it.** That block is
+what a *student's shell* gets. The setup script runs earlier and elsewhere — at
+image build time — and sees none of it, which showed up as:
+
+```
+=== clone the platform
+/tmp/setup: line 181: LAB_REPO_URL: unbound variable
+```
+
+So the script defaults `LAB_REPO_URL`, `LAB_REPO_REF` and `WORKSHOP_DIR` itself,
+because it needs them before there is a checkout, and reads everything else
+(`VAULT_ADDR`, the Vault root token, `PORTAL_URL`) out of `config.yml` once the
+clone has made it readable. Those three defaults are the only values written twice
+in this directory, and the script asserts they still match `config.yml` rather
+than trusting it — **so changing `LAB_REPO_REF` in `config.yml` alone will fail the
+build on purpose.** Change both.
+
+**Anything it prints goes to a log, not to a student.** It runs before anybody has
+a shell, so it is the wrong place for per-student output — and `PORTAL_LINK_CODE`
+is not in scope there either. The join link is therefore built at shell start by
+`/etc/profile.d/workshop.sh`, out of `$PORTAL_URL` (written into
+`/etc/workshop/env` by the setup script) and `$PORTAL_LINK_CODE` (the Instruqt
+secret). If students see "No portal link", that secret is missing, not the script.
 
 ## Updating the track
 
 ```bash
 cd instruqt/track
-instruqt track validate      # local files, but it also reads the remote track
+instruqt track validate      # local files, plus the preset they reference
 instruqt track push          # --force to overwrite remote changes
 instruqt track open          # the URL, in a browser
 ```
 
-`track.yml` names `sandbox_preset: temporal-platform-workshop`, so the preset has
-to exist and be published before a pushed track can start. Push the sandbox
-first.
+**The sandbox comes first, and it is not a soft dependency.** `track.yml` names
+`sandbox_preset: temporal-platform-workshop`, and both `push` and `validate`
+resolve that preset against the platform before they will look at anything else:
 
-Note what `validate` does: it loads the local files **and then looks the track up
-remotely**, so on a track that has never been pushed it fails with
-`failed to remote config (...): Entity not found`. That is the remote lookup, not
-your YAML.
+```
+==> Reading track definition
+    [ERROR] failed to remote config (temporal-platform-workshop): Entity not found
+```
+
+That is the **preset** it cannot find, not the track — and because this workshop
+gives the two the same slug, the message reads exactly like a missing track and
+sends you off to create one. Confirmed by isolating it: adding that one
+`sandbox_preset` line to a freshly scaffolded track that validates cleanly
+reproduces the error, and removing it clears it. So if you see this, push and
+publish the sandbox and come back.
+
+### Two things `track push` does to your files
+
+**It rewrites them, and it deletes every comment.** A push pulls the canonical
+form back over your local copy: it adds `id:` to the track and to each tab, adds
+`checksum`, `enhanced_loading` and any `lab_config` default it wants, reflows
+folded strings, reorders `tags` — and strips all YAML comments and blank lines.
+Comments written in `track.yml` or an `assignment.md` frontmatter survive exactly
+until the next push, so **rationale for anything in those two files belongs in
+this README instead.** (`sandbox push` does not do this: `config.yml` keeps its
+comments, which is why that file is commented and these are not.)
+
+It also **re-adds keys you delete.** `default_layout` and
+`default_layout_sidebar_size` come back on the next push with the platform's own
+values, so removing a key is not a way to turn something off — find the key that
+turns it off instead.
+
+The practical trap: an edit written against your pre-push copy will fail to match,
+because the file on disk is no longer the file you wrote. Re-read before editing.
+
+**Tab ids are the platform's, not yours.** They appear only after a push, which is
+what makes the layout below possible — and what makes `track pull` into a scratch
+directory the way to read them:
+
+```bash
+mkdir /tmp/pull && cd /tmp/pull && instruqt track pull temporal-platform-workshop
+grep -A1 "^- id:" temporal-platform-workshop/01-workshop/assignment.md
+```
+
+### Removing the assignment panel
+
+There is no "hide the assignment" flag. `default_layout` only chooses where to put
+it — `AssignmentLeft`, `AssignmentRight`, `AssignmentBottom` — so the only way to
+have no assignment pane is a `custom_layout` on the challenge that never mentions
+one. It is a serialised JSON tree of leaves, each naming the tabs it holds:
+
+```yaml
+lab_config:
+  custom_layout: '{"root":{"children":[{"leaf":{"tabs":["<terminal-id>","<editor-id>"],"activeTabId":"<terminal-id>","size":100}}],"orientation":"Horizontal"}}'
+```
+
+One leaf, `size: 100`, no `"assignment"` leaf: the terminal and editor get the
+whole screen. `"assignment"` and `"feedback"` are the only literal tab names; every
+other tab is referenced by the id above, and a layout naming an id that does not
+exist renders nothing rather than erroring — so re-read the ids after any change
+that deletes and recreates a tab.
+
+`override_challenge_layout: true` in `track.yml` makes the track's own layout beat
+this, which is why it is set to `false` there. `default_layout: AssignmentLeft`
+sitting next to it is the platform's default, re-added on every push and inert
+while `override_challenge_layout` is false — not a contradiction, and not worth
+trying to delete.
+
+### Removing the Instructions sidebar
+
+A different panel with a different switch, and the two are easy to confuse. The
+sidebar is the challenge navigation down the left; the assignment panel is the
+prose beside it. One key, at track level:
+
+```yaml
+lab_config:
+  sidebar_enabled: false
+```
+
+With a single challenge whose instructions live in the portal, it navigates
+between one thing and is worth the screen space. (Borrowed from
+`temporal-cloud-training-portal`, which is this track's ancestor and does the
+same.)
+
+**What this cost, and what covers it.** The assignment panel is also where a
+challenge's `notes` are read, so removing it removes the sandbox's only in-lab
+orientation text. Two things stand in for it and both are deliberate: the terminal
+prints the portal join link at every shell start, and `code` explains the Editor
+tab itself when no editor window is open yet.
 
 ## Testing and debugging a run
 
@@ -101,6 +217,25 @@ instruqt track checksum      # has the remote drifted from this checkout?
 `track test` runs the lifecycle scripts (setup / check / solve / cleanup).
 `--keep-running` leaves the environment up when it finishes or fails, which is the
 only way to get inside a sandbox whose prebuild half-worked.
+
+Two things about reading its output, both learned from green and red runs of it:
+
+**It exits 0 even when it prints `FAIL`.** The `==> Track test succeeded` line is
+the only reliable signal, so anything automated has to grep for it:
+
+```bash
+instruqt track test temporal-platform-workshop | tee /tmp/t.log
+grep -q "Track test succeeded" /tmp/t.log || exit 1
+```
+
+**Log delivery drops lines.** Across two passing runs, one `ok` line from the
+image checks and one from the egress probes never arrived, on runs that were
+otherwise identical and green. A missing line is therefore not evidence of a
+skipped step: the setup script is `set -euo pipefail` throughout, so anything that
+failed would have exited non-zero and stopped the run. **Reaching `=== ready` is
+the proof; individual lines are only a convenience.** That is also why the image
+check prints the whole `k3s ctr images` listing at the end rather than trusting
+three separate echoes.
 
 This track has no per-challenge check scripts wired into Instruqt — the
 checkpoints are graded by the portal against the Cloud account, or self-attested
@@ -125,11 +260,32 @@ service account in challenge 1 and seeds its key into Vault with
 Cloud credential. If you find yourself adding a secret to make a command work,
 read the last section of CLAUDE.md first.
 
-## Not yet pushed
+## The first push, in this order
 
-Neither the track nor the preset exists on the platform yet — `sandbox diff` and
-`track validate` both report no remote config as of this writing. The first
-`sandbox push` and `track push` are what create them, and the first `publish` is
-the first real test of the prebuild script. Everything above is the CLI's own
-documented behaviour and its verified flags; the first-push path itself is the one
-thing here nobody has run.
+Neither the track nor the preset exists on the platform yet, so the first time is
+not the loop above — it is this, and the order is forced by the preset lookup:
+
+```bash
+cd instruqt/sandbox
+instruqt sandbox push
+instruqt sandbox publish --message "initial"
+
+cd ../track
+instruqt track validate     # only passes once the preset above resolves
+instruqt track push
+```
+
+Two things worth knowing before you start, both learned the hard way:
+
+**Neither `create` verb touches the platform.** `instruqt sandbox create` and
+`instruqt track create` print `==> Creating temporal/<slug>` and then only scaffold
+a local directory — a `sandbox diff` and a `track pull` for what they "created"
+both come back `Entity not found`. They are for starting a new track from nothing,
+not for registering this one, and running either in here would only lay a second
+skeleton on top of the real files.
+
+**So `sandbox push` is what has to create the preset,** by elimination: of the
+five sandbox verbs it is the only one that writes. That is the single step in this
+file nobody has run yet, and if it turns out to need the preset to already exist,
+the platform's web UI is the way to make an empty one — everything else here has
+been checked against the CLI.

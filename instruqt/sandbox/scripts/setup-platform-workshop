@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
 # Sandbox prebuild.
 #
-# Everything slow happens here so that challenge 1 starts with `workshop init`
-# rather than with a toolchain download. Three lines matter more than the rest:
-# the warm Terraform provider cache, the first k3s start, and the two container
-# images. A cold `terraform init` against temporalio/temporalcloud is a silent
-# two-minute stall on the student's very first apply and it looks like a hung
-# workflow; a cold k3s start pulls its own system images while the student waits
-# at the first prompt of the day.
+# This runs on the sandbox itself, once, while it starts -- not at `sandbox
+# publish`, which builds nothing and returns in a second. So everything below is
+# time a student spends watching the loading screen, and the trade it makes is
+# always the same: move a wait out of a challenge, where it looks like a hung
+# workflow, into a loading screen, where it looks like a loading screen.
+#
+# Three lines earn their place more than the rest: the warm Terraform provider
+# cache, the first k3s start, and the two container images. A cold `terraform
+# init` against temporalio/temporalcloud is a silent two-minute stall on the very
+# first apply; a cold k3s start pulls coredns and friends at the first prompt of
+# the day.
 #
 # What this does NOT do, on purpose:
 #
-#   * No Vault. It runs as a pod on k3s (deploy/platform/vault.yaml), in dev
-#     mode, which means its contents do not survive the pod restarting -- and a
-#     prebuilt sandbox is snapshotted and booted, so anything seeded here is gone
-#     before a student sees it. `workshop init --api-key` brings Vault up and
-#     seeds the key at the moment the student pastes it, which is also the only
-#     moment anybody holds it. A host `vault server -dev` on 8200 used to run
-#     here as well; nothing addressed it, because $VAULT_ADDR is the NodePort.
+#   * No Vault. It runs as a pod on k3s (deploy/platform/vault.yaml), and
+#     `workshop init --api-key` is what brings it up -- at the moment the student
+#     pastes the key, which is the only moment anybody holds it. This script runs
+#     before there is a key to seed, so bringing Vault up here would only move
+#     thirty seconds of waiting from a step that explains itself into a loading
+#     screen that does not. A host `vault server -dev` on 8200 used to run here as
+#     well; nothing addressed it, because $VAULT_ADDR is the NodePort.
 #
 #   * No Temporal dev server, and no host copy of the control plane. Both used to
 #     be here, from before this workshop ran against Temporal Cloud. The control
@@ -32,6 +36,22 @@
 set -euo pipefail
 
 log() { printf '\n=== %s\n' "$*"; }
+
+# The `environment:` block in sandbox/config.yml is NOT in scope here.
+#
+# Learned from a real preset build: this script reached `=== clone the platform`
+# and died on `LAB_REPO_URL: unbound variable`. That block is what a student's
+# shell gets; a preset's setup script runs earlier and elsewhere, at image build
+# time, and sees none of it.
+#
+# So the two values needed BEFORE there is a checkout are defaulted here. Nothing
+# else is: everything further down reads sandbox/config.yml itself, once the clone
+# has made it readable, so the config stays the one place those values are written.
+# These two cannot work that way -- they are how the checkout is obtained -- so
+# they are the one duplicated set in the sandbox, and the check after the clone
+# asserts they still agree with the config rather than trusting that they do.
+LAB_REPO_URL="${LAB_REPO_URL:-https://github.com/taonic/temporal-platform-workshop.git}"
+LAB_REPO_REF="${LAB_REPO_REF:-main}"
 WORKSHOP_DIR="${WORKSHOP_DIR:-/workspace/platform}"
 
 # Pinned, every one of them. A tool that changes under a cohort is a tool that
@@ -178,11 +198,41 @@ curl -fsSL https://get.k3s.io | INSTALL_K3S_CHANNEL="$K3S_CHANNEL" INSTALL_K3S_S
 
 log "clone the platform"
 mkdir -p "$(dirname "$WORKSHOP_DIR")"
-git clone --depth 1 --branch "${LAB_REPO_REF:-main}" "${LAB_REPO_URL}" "$WORKSHOP_DIR"
+git clone --depth 1 --branch "$LAB_REPO_REF" "$LAB_REPO_URL" "$WORKSHOP_DIR"
 cd "$WORKSHOP_DIR"
 # The post-commit hook runs `tpctl sync`, which is how challenge 3's "commit a
 # spec and the platform converges" works at all.
 git config core.hooksPath hooks
+
+# Now that the config is on disk, read what a student's shell will be given --
+# rather than keeping a second copy of it in here.
+#
+# One `environment:` value per line, `NAME: value`, so awk is enough and pulling in
+# a YAML parser is not. An env var still wins where one is set, because that is how
+# a human overrides a build without editing either file.
+cfg_env() { # cfg_env NAME -- the value sandbox/config.yml gives a student's shell
+  awk -v k="$1:" '$1==k {gsub(/"/,"",$2); print $2; exit}' instruqt/sandbox/config.yml
+}
+
+for v in LAB_REPO_URL LAB_REPO_REF WORKSHOP_DIR; do
+  want="$(cfg_env "$v")"; have="${!v}"
+  [ -z "$want" ] || [ "$want" = "$have" ] || {
+    echo "FAIL $v is \"$have\" in this script but \"$want\" in sandbox/config.yml." >&2
+    echo "     These two are needed before the clone exists, so they are the one" >&2
+    echo "     duplicated pair here and both copies have to move together." >&2
+    exit 1
+  }
+done
+
+VAULT_ADDR="${VAULT_ADDR:-$(cfg_env VAULT_ADDR)}"
+VAULT_DEV_ROOT_TOKEN_ID="${VAULT_DEV_ROOT_TOKEN_ID:-$(cfg_env VAULT_DEV_ROOT_TOKEN_ID)}"
+PORTAL_URL="${PORTAL_URL:-$(cfg_env PORTAL_URL)}"
+WORKSHOP_STRICT_EGRESS="${WORKSHOP_STRICT_EGRESS:-$(cfg_env WORKSHOP_STRICT_EGRESS)}"
+: "${VAULT_ADDR:?not set here and not in sandbox/config.yml}"
+: "${VAULT_DEV_ROOT_TOKEN_ID:?not set here and not in sandbox/config.yml}"
+echo "  repo    $LAB_REPO_URL @ $LAB_REPO_REF"
+echo "  vault   $VAULT_ADDR"
+echo "  portal  ${PORTAL_URL:-<unset>}"
 
 # The vault CLI installed above and the Vault the cluster runs must be the same
 # version. Asserted rather than assumed: they are pinned in two files, and a
@@ -237,20 +287,58 @@ docker save managed-worker:dev  -o /var/lib/rancher/k3s/agent/images/managed-wor
 docker save "$VAULT_IMAGE"      -o /var/lib/rancher/k3s/agent/images/vault.tar
 
 log "start k3s, and let it settle"
-# enable as well as start: this image is snapshotted and booted, so a unit that
-# was only started during the build is not running when a student arrives.
+# --now is what matters: this script runs on the live sandbox, once, as it starts,
+# so nothing here is baked into an image and the cluster has to be up by the time
+# it returns. `enable` is insurance for a machine that reboots under a student.
 systemctl enable --now k3s
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-for _ in $(seq 1 90); do kubectl get nodes >/dev/null 2>&1 && break; sleep 2; done
-kubectl wait --for=condition=Ready node --all --timeout=180s
+
+# Wait for a NODE, not for the API server.
+#
+# `kubectl get nodes` exits 0 the moment the API answers, empty list and all, so a
+# loop waiting on it breaks about eleven seconds in -- before the kubelet has
+# registered anything -- and the `kubectl wait` below then fails instantly with
+# "error: no matching resources found" instead of waiting for what it was asked
+# about. Ask for the thing actually needed.
+for _ in $(seq 1 120); do
+  [ -n "$(kubectl get nodes --no-headers 2>/dev/null)" ] && break
+  sleep 2
+done
+kubectl wait --for=condition=Ready node --all --timeout=300s || {
+  echo "FAIL the node never went Ready. What k3s says about it:" >&2
+  kubectl get nodes -o wide >&2 || true
+  journalctl -u k3s --no-pager 2>/dev/null | tail -40 >&2 || true
+  exit 1
+}
+
 # Proof the staged images actually landed, while there is still a build log
 # nobody is waiting on. Without this the first symptom is ImagePullBackOff in
 # front of a student, reported as "pull access denied" for a registry that was
 # never involved.
+#
+# Retried rather than asserted once: k3s imports everything in agent/images
+# asynchronously as it starts, and these three are a couple of gigabytes, so the
+# store is legitimately still filling for a while after the node reports Ready.
 for img in platform-worker:dev managed-worker:dev "$VAULT_IMAGE"; do
-  k3s ctr images ls -q | grep -q "$img" \
-    || { echo "FAIL $img is not in k3s's image store" >&2; exit 1; }
+  for _ in $(seq 1 60); do
+    k3s ctr images ls -q | grep -q "$img" && break
+    sleep 5
+  done
+  k3s ctr images ls -q | grep -q "$img" || {
+    echo "FAIL $img is not in k3s's image store after five minutes" >&2
+    echo "     staged tarballs:" >&2
+    ls -l /var/lib/rancher/k3s/agent/images/ >&2 || true
+    exit 1
+  }
+  echo "  ok   $img"
 done
+
+# The store itself, not three echoes of it. Log delivery dropped one of those
+# lines on the run that proved this works, which made a passing check look like a
+# skipped one -- and `set -e` was the only reason anyone could tell the difference.
+# Printing what containerd actually holds cannot be misread that way.
+echo "  k3s image store:"
+k3s ctr images ls -q 2>/dev/null | grep -E 'platform-worker|managed-worker|vault' | sed 's/^/    /' || true
 
 log "platform environment"
 # Its own named block, so that `workshop init` -- which rewrites `# >>> workshop`
@@ -276,6 +364,9 @@ export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
 # k3s and finds it on its own; k9s, which challenge 2 asks a student to open, does
 # not -- it reads \$KUBECONFIG like any other client and reports "no clusters".
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Where the lab material lives. The join link is built from this at shell start,
+# not here -- see below.
+export PORTAL_URL=$PORTAL_URL
 export PATH=/usr/local/go/bin:/root/.local/bin:$WORKSHOP_DIR/bin:\$PATH
 # <<< workshop sandbox
 ENV
@@ -296,8 +387,32 @@ if [ -z "${WORKSHOP_ENV_SOURCED:-}" ]; then
   export WORKSHOP_ENV_SOURCED=1
 fi
 # Only for a shell someone is sitting at. A grader or a hook that sources this
-# should get the variables without being moved out of the directory it chose.
-case $- in *i*) cd "$WORKSHOP_DIR" 2>/dev/null || true ;; esac
+# should get the variables without being moved out of the directory it chose --
+# and neither should be shown a join link.
+case $- in
+  *i*)
+    cd "$WORKSHOP_DIR" 2>/dev/null || true
+
+    # The portal link, built HERE rather than baked into the image.
+    #
+    # This is the one thing a student has to have, and the setup script cannot
+    # give it to them: a preset's setup script runs at image build time, so
+    # anything it prints goes to a build log nobody in the room will ever see, and
+    # $PORTAL_LINK_CODE -- an Instruqt secret -- is not in scope there either. A
+    # shell start is the first moment both the student and the secret exist.
+    #
+    # Bare on purpose: it cannot be personalised, because the student has not
+    # chosen a username yet. They pick one at the portal and bookmark what it
+    # hands back.
+    if [ -n "${PORTAL_LINK_CODE:-}" ] && [ -n "${PORTAL_URL:-}" ]; then
+      printf '\n  Your workshop instructions:\n  %s/join?k=%s\n\n' \
+        "$PORTAL_URL" "$PORTAL_LINK_CODE"
+    else
+      printf '\n  No portal link: PORTAL_LINK_CODE is not set on this sandbox.\n'
+      printf '  Ask your instructor for the join link -- the labs are all in there.\n\n'
+    fi
+    ;;
+esac
 PROFILE
 # Both files, because which one a terminal reads depends on whether it opens a
 # login shell, and that is Instruqt's choice rather than ours. The guard above
@@ -308,18 +423,6 @@ source /etc/profile.d/workshop.sh
 BRC
 # shellcheck disable=SC1091
 source /etc/workshop/env
-
-log "your portal link"
-if [ -n "${PORTAL_URL:-}" ] && [ -n "${PORTAL_LINK_CODE:-}" ]; then
-  # A BARE join link: the sandbox cannot build a personalised one, because the
-  # student has not chosen their username yet. They pick it at the portal, the
-  # portal hands back the personalised link, and that URL is what they bookmark.
-  LINK="${PORTAL_URL}/join?k=${PORTAL_LINK_CODE}"
-  echo "export PORTAL_LINK='$LINK'" >> /etc/workshop/env
-  printf '\n  %s\n\n' "$LINK"
-else
-  echo "  PORTAL_URL or PORTAL_LINK_CODE is not set; skipping the portal link"
-fi
 
 log "egress probes"
 # What the SANDBOX has to reach, not what a browser does. cloud.temporal.io is

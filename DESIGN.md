@@ -644,9 +644,29 @@ namespace their own Terraform made in challenge 1, and having one already runnin
 gives the bootstrap away. There is no local dev server anywhere in the workshop.
 
 k3s over k3d **in the sandbox**: the Kubernetes-auth switch in challenge 4 is more
-honest against a real kubelet, and nothing is torn down repeatedly. Measure the
-boot rather than guessing — the portal's loading messages exist because that build
-is already slow.
+honest against a real kubelet, and nothing is torn down repeatedly.
+
+### Measured, not guessed
+
+The setup script runs on the sandbox as it starts — `sandbox publish` builds
+nothing — so all of this is time a student spends on the loading screen. From a
+green `instruqt track test`, 2026-08-31:
+
+| Stage | Took |
+|---|---|
+| apt, Go, uv, terraform, vault, temporal, k9s, code-server | 47s |
+| k3s install | 15s |
+| clone, `go build ./...`, `go mod download` | 64s |
+| `uv sync` | 1s |
+| two image builds + the Vault pull + three `docker save`s | 117s |
+| k3s start, node Ready, image-store import | 28s |
+| env file, egress probes | 3s |
+| **total** | **280s** |
+
+Two things that table settles. The image builds are the single biggest line and
+worth keeping an eye on; and the Vault image needed one retry before containerd
+had it, which is why the image-store check retries rather than asserting once — it
+would otherwise have failed this very run.
 
 On a laptop the same manifests run on k3d or Docker Desktop's Kubernetes, because
 k3s does not run natively on macOS (rule 8). That is a difference in the cluster,
