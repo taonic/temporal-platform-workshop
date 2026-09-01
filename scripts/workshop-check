@@ -203,7 +203,32 @@ echo "Outbound network"
 # The address the control plane dials is regional; the namespace-specific one
 # does not exist until challenge 1 has run.
 probe_net() {
-    if nc -z -w 5 "${1%%:*}" "${1##*:}" 2>/dev/null; then ok "$1"; else bad "$1"; fi
+    local host="${1%%:*}" port="${1##*:}"
+    # A chain, because the single-tool version WAS the bug. This used `nc -z`
+    # alone; netcat is not installed in the sandbox, so all four of these FAILED
+    # on a box whose network was demonstrably fine -- the setup script had just
+    # reported ok for the same hosts minutes earlier. That is exactly the false
+    # FAIL the top of this file exists to prevent, and it sends someone hunting a
+    # firewall rule that was never the problem.
+    #
+    # Each method gets its own try rather than an elif chain: a busybox nc has no
+    # -z and would otherwise fail the probe without anything else being tried,
+    # which is the same mistake wearing a different hat.
+    if command -v nc > /dev/null 2>&1 && nc -z -w 5 "$host" "$port" 2>/dev/null; then
+        ok "$1"; return
+    fi
+    # bash's own /dev/tcp needs nothing installed, which is what makes it the
+    # right thing to fall back to. BRACES, not a subshell: when the connect is
+    # refused `timeout` ends up SIGKILLing bash, and the shell reports a killed
+    # child on ITS OWN stderr -- which a redirect on the command cannot silence
+    # but one on a brace group can. Without it this prints "Killed: 9" between
+    # every line of a check students are meant to read.
+    if command -v timeout > /dev/null 2>&1; then
+        if { timeout 5 bash -c "exec 3<>/dev/tcp/$host/$port"; } 2>/dev/null; then ok "$1"; return; fi
+    elif bash -c "exec 3<>/dev/tcp/$host/$port" 2>/dev/null; then
+        ok "$1"; return
+    fi
+    bad "$1"
 }
 probe_net us-west-2.aws.api.temporal.io:7233
 probe_net saas-api.tmprl.cloud:443
