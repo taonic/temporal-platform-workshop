@@ -18,8 +18,7 @@ retentionDays: 7
 
 region: aws-us-east-1
 environments:
-  - staging
-  - prod`;
+  - staging`;
 
 /** internal/platform/register.go -- the two lines challenge 2 turns on. */
 export const REGISTER_CHALLENGE_2 = `// ---- Challenge 2 -------------------------------------------------------
