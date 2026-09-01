@@ -34,9 +34,8 @@
 #
 #   1. A decorator only runs when its module is imported. workflows/__init__.py
 #      imports this module for that reason and no other. Comment that import out
-#      and the registry is empty — which is the failure OpenAI's platform team
-#      calls out by name: "always register that workflow at bootstrap; often times
-#      people miss that."
+#      and the registry is empty — which is the failure platform teams call out by
+#      name: registering the workflow at bootstrap is the step people miss.
 #
 #   2. Because the config is generated from the registry, it cannot drift from the
 #      code. And because the worker re-checks the config against the registry on

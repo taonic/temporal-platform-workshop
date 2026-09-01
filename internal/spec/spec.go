@@ -50,8 +50,8 @@ const (
 	BackendS3    = "s3"
 )
 
-// Spec is one team's request. Fields follow the shape OpenAI's own tool asks for:
-// name, owner, tier, retention.
+// Spec is one team's request. Four fields, which is what a real namespace-request
+// tool asks for and no more: name, owner, tier, retention.
 type Spec struct {
 	Name          string   `yaml:"name"`
 	Owner         string   `yaml:"owner"`

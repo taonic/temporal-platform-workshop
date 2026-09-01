@@ -5,8 +5,8 @@ when its module is imported, so a workflow in a module nobody imports is invisib
 to the registry -- and a worker that does not know about a workflow will happily
 start, poll, and never pick up a single task.
 
-This is the exact failure the OpenAI Replay talk calls out: "always register that
-workflow at bootstrap; often times people miss that." The platform cannot stop you
+This is the failure platform teams call out by name: always register the workflow
+at bootstrap, because it is the step people miss. The platform cannot stop you
 forgetting an import, but it can refuse to start when the config and the code
 disagree -- see platform_sdk/validate.py. Try deleting a line here and running the
 worker.

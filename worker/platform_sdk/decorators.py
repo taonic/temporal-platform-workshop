@@ -10,9 +10,8 @@ A workflow declares where it runs, next to the code that runs there:
 
 Nobody writes a task-queue name in a YAML file, nobody writes a worker manifest,
 and nobody can forget to register a workflow -- because declaring it *is*
-registering it. That last part is the fix for the failure the OpenAI talk names
-out loud: "always register that workflow at bootstrap; often times people miss
-that."
+registering it. That last part is the fix for the failure platform teams name out
+loud: registering a workflow at bootstrap is the step people forget.
 """
 
 from __future__ import annotations

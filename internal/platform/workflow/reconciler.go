@@ -20,9 +20,9 @@ const historyLimit = 8000
 // NamespaceWorkflow is the declarative driver: a long-lived entity workflow, one
 // per logical namespace, that keeps the world matching the spec.
 //
-// This is the workshop's central claim made executable. OpenAI built this control
-// loop as a Kubernetes operator; a Temporal entity workflow is a better operator
-// for the same job -- durable by construction, retryable per resource, auditable
+// This is the workshop's central claim made executable. The usual way to build
+// this control loop is a Kubernetes operator; a Temporal entity workflow is a
+// better operator for the same job -- durable by construction, retryable, auditable
 // after the fact from event history, and able to wait on a human without holding
 // a process open.
 //
