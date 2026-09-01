@@ -57,10 +57,19 @@ Two known traps:
 - **`verify` currently fails** at `go test ./internal/platform/...` with
   `unable to find activityType=CheckQuota` — the test harness does not mock
   `CheckQuota`. Pre-existing, not something you broke.
-- **A failed `verify` leaves the repo solved.** It runs `unsolve` as its last
-  step, so an earlier failure skips it, and `unsolve` deletes a tracked
-  `terraform/namespace/outputs.tf` rather than restoring it. Check
-  `git status` afterwards and `git checkout -- terraform/namespace/` if needed.
+- **A failed `verify` leaves the repo solved, and this has already been
+  committed once.** `verify` runs `unsolve` as its last step, so an earlier
+  failure skips it — and the `CheckQuota` failure above is exactly such a
+  failure. `2929796` shipped `main` with all four answers in it: the solved
+  `main.tf`, a tracked `outputs.tf`, `register.go` and `greeting.py`. Every
+  sandbox built from that branch handed students a completed workshop, and
+  nothing complained, because a solved repo builds and its tests pass.
+
+  So: **after any `verify`, run `git status` before you commit.** The tell is
+  those four paths appearing as modified. `make unsolve` puts them back.
+  `outputs.tf` is no longer tracked, which is what a student's clone should look
+  like — lab 1 has them create it — so `unsolve` deleting it is now a no-op
+  rather than a tracked deletion you have to notice.
 
 ## Things that will bite you
 
