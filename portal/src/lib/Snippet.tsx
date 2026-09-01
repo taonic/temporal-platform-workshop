@@ -7,8 +7,7 @@ import { CopyButton } from '@/lib/CopyButton';
  *
  * Disclosure rather than always-visible: one click is enough friction to make
  * pasting-without-reading a choice rather than the default, and five open code
- * blocks would make a lab page mostly code. The summary carries the training
- * portal's own line, because it is the right one -- the arguments are the lesson.
+ * blocks would make a lab page mostly code.
  */
 export async function Snippet({
   snippet,
@@ -31,9 +30,6 @@ export async function Snippet({
           ) : (
             'Show the commands'
           )}
-        </span>
-        <span className="snippet-hint">
-          Type it rather than pasting it if you have the time — the arguments are the lesson
         </span>
       </summary>
 

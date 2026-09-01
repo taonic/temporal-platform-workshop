@@ -367,7 +367,6 @@ input {
 }
 .snippet[open] > summary::before { transform: rotate(45deg); }
 .snippet[open] > summary { border-bottom: 1px solid var(--rule); border-radius: 8px 8px 0 0; }
-.snippet-hint { font-weight: 400; font-size: 0.82rem; color: var(--muted); }
 .snippet-body { padding: 0.9rem 0.95rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
 .snippet-tools { display: flex; align-items: center; gap: 0.5rem; }
 
