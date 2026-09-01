@@ -26,6 +26,11 @@ REPO="$(cd "$HERE/../.." && pwd)"
 k() { kubectl "$@"; }
 
 VAULT_NODEPORT="${VAULT_NODEPORT:-30820}"
+# Script-level, not `local` in ensure_base_infra. bring_up_base prints it in its
+# closing summary, and a `local` is not in scope there -- under `set -u` that is
+# not an empty string, it is "vault_root: unbound variable" thrown AFTER the key
+# was already seeded, so the work succeeded and the command still failed.
+VAULT_ROOT_TOKEN="${VAULT_DEV_ROOT_TOKEN_ID:-dev}"
 IMAGE="${IMAGE:-platform-worker:dev}"
 
 # Colour, when a terminal is there to render it. NO_COLOR is honoured because it
@@ -262,7 +267,6 @@ require_cluster() {
 # touches the Cloud API key. That key is the ONLY reason the two phases were ever
 # separate: see the note at the top of this file, and seed_cloud_key below.
 ensure_base_infra() {
-  local vault_root="${VAULT_DEV_ROOT_TOKEN_ID:-dev}"
 
   step "Create the platform namespace and its bootstrap secret" \
     "A Kubernetes namespace called \"platform\" to keep the control plane's own" \
@@ -270,7 +274,7 @@ ensure_base_infra() {
     "is not your Cloud key -- it is how this script talks to Vault to configure it."
   k create namespace platform --dry-run=client -o yaml | k apply -f -
   k -n platform create secret generic platform-bootstrap \
-    --from-literal=vault-root-token="$vault_root" \
+    --from-literal=vault-root-token="$VAULT_ROOT_TOKEN" \
     --dry-run=client -o yaml | k apply -f -
 
   step "Deploy Vault, and wait for it" \
@@ -280,7 +284,7 @@ ensure_base_infra() {
   k apply -f "$HERE/vault.yaml"
   k -n platform rollout status deploy/vault --timeout=120s
 
-  export VAULT_ADDR="http://127.0.0.1:$VAULT_NODEPORT" VAULT_TOKEN="$vault_root"
+  export VAULT_ADDR="http://127.0.0.1:$VAULT_NODEPORT" VAULT_TOKEN="$VAULT_ROOT_TOKEN"
   ensure_vault_reachable
 
   step "Configure Kubernetes auth in Vault" \
@@ -347,7 +351,7 @@ bring_up_base() {
 
 Base is up.
 
-  vault   http://127.0.0.1:30820  (root token: $vault_root)
+  vault   http://127.0.0.1:$VAULT_NODEPORT  (root token: $VAULT_ROOT_TOKEN)
 
 The platform's Cloud API key is in Vault at secret/platform/cloud-api-key and
 nowhere else. Unset TEMPORAL_CLOUD_API_KEY now.

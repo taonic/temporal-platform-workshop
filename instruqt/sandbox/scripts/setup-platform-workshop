@@ -60,7 +60,8 @@ WORKSHOP_DIR="${WORKSHOP_DIR:-/workspace/platform}"
 GO_VERSION=1.25.4
 TF_VERSION=1.9.8
 VAULT_VERSION=1.18.3          # must match deploy/platform/vault.yaml; asserted below
-TEMPORAL_CLI_VERSION=1.8.2    # `temporal cloud` is built in from 1.5; do not un-pin
+TEMPORAL_CLI_VERSION=1.8.2
+CLOUD_CLI_VERSION=0.0.4       # `temporal cloud` -- a SEPARATE binary; see below
 UV_VERSION=0.12.7
 K9S_VERSION=v0.32.7
 CODE_SERVER_VERSION=4.135.0
@@ -97,11 +98,37 @@ unzip -q -o /tmp/vault.zip -d /usr/local/bin && rm /tmp/vault.zip
 log "temporal cli"
 curl -fsSL https://temporal.download/cli.sh | sh -s -- --version "$TEMPORAL_CLI_VERSION" --dir /usr/local
 ln -sf /usr/local/bin/temporal /usr/bin/temporal 2>/dev/null || true
-# Every challenge from 1 onwards runs `temporal cloud`, which is part of the CLI
-# rather than a plugin -- but only from 1.5, and the labs read the account and the
-# namespace back out of it. Proving it here turns a stale pin into a failed
-# preset build instead of a failed challenge 1.
-temporal cloud --help >/dev/null
+
+log "temporal cloud extension"
+# `temporal cloud` is a SEPARATE BINARY, not part of the CLI.
+#
+# This is the single most common thing to arrive without, and it was wrong here
+# too: the comment this replaces claimed `cloud` was built into the CLI from 1.5,
+# which is what a laptop with the Homebrew `temporal-cloud` formula installed
+# looks like. A sandbox without it has a `cloud` command group that answers
+# `--help` and then says "unknown command" for every actual subcommand.
+#
+# The `temporal` CLI discovers `temporal-cloud` on PATH and re-exposes it as
+# `temporal cloud ...`, so installing the binary is the whole of the integration.
+# The release publishes checksums, and a plain Linux tarball -- no brew, no Go
+# toolchain. https://github.com/temporalio/cloud-cli/releases
+CLOUD_TGZ="temporal_cloud_cli_${CLOUD_CLI_VERSION}_linux_amd64.tar.gz"
+CLOUD_BASE="https://github.com/temporalio/cloud-cli/releases/download/v${CLOUD_CLI_VERSION}"
+curl -fsSL -o /tmp/temporal-cloud.tgz "$CLOUD_BASE/$CLOUD_TGZ"
+# Verified, because this is the one binary here fetched from a release rather than
+# through a vendor's own installer.
+CLOUD_WANT="$(curl -fsSL "$CLOUD_BASE/checksums.txt" | awk -v n="$CLOUD_TGZ" '$2 == n {print $1}')"
+[ -n "$CLOUD_WANT" ] || { echo "FAIL $CLOUD_TGZ has no entry in checksums.txt" >&2; exit 1; }
+echo "$CLOUD_WANT  /tmp/temporal-cloud.tgz" | sha256sum -c -
+tar -xzf /tmp/temporal-cloud.tgz -C /tmp temporal-cloud
+install -m 0755 /tmp/temporal-cloud /usr/local/bin/temporal-cloud
+rm -f /tmp/temporal-cloud.tgz /tmp/temporal-cloud
+
+# Asserted on a REAL subcommand. `temporal cloud --help` succeeds with no plugin
+# installed at all -- it is the group, and cobra prints it happily -- so the check
+# that used to live here proved nothing and passed a sandbox where challenge 1's
+# first verification command was broken. `whoami` is the one that lab runs.
+temporal cloud whoami --help >/dev/null
 
 log "k9s"
 # A terminal UI for the cluster. Not required by any command in the workshop, but

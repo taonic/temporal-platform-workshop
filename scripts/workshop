@@ -518,6 +518,17 @@ Setting this machine up  (challenge 1, in this order)
                             --namespace names it outright instead.
   init                      Both halves, prompting for anything not passed.
 
+                            The two combine, and challenge 1 runs them that way:
+
+                              init --api-key --username <u> --cohort <c> \
+                                   --region <r> --namespace <n>
+
+                            One command, and a better one: the key is seeded
+                            first, so the env file's account id is decoded from
+                            the key still in memory rather than read back out of
+                            Vault. A bare --api-key alongside the other flags
+                            still prompts without echoing.
+
 Running the control plane  (challenge 2 onwards)
   platform-up [--control-namespace <ns>] [-y|--yes]
                             Build the worker image, load it into k3s, and deploy

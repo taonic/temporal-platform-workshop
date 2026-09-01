@@ -8,6 +8,16 @@ source /etc/workshop/env
 # with "no such file or directory", which reads as "you never wrote a spec".
 cd "${WORKSHOP_DIR:-/workspace/platform}" || exit 1
 
+# Named rather than assumed. Every path below is built from it, and under `set -u`
+# an unset one aborts with "WORKSHOP_USERNAME: unbound variable" -- which reads as
+# a broken grader rather than as a step nobody has run yet.
+[ -n "${WORKSHOP_USERNAME:-}" ] || {
+  echo "WORKSHOP_USERNAME is not set, so there is nothing to grade yet." >&2
+  echo "Challenge 1 writes it: ./scripts/workshop init --api-key --username <you> ..." >&2
+  echo "Then: source \"\$(./scripts/workshop env-file)\"" >&2
+  exit 1
+}
+
 # No `workshop exec` helper here on purpose: every Temporal call below is made
 # with the WORKER's credential, read from the Vault path the platform wrote. See
 # the note above the poller check for why the platform's own key cannot do it.

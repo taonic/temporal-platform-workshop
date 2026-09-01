@@ -8,6 +8,16 @@ source /etc/workshop/env
 # with "no such file or directory", which reads as "you never wrote a spec".
 cd "${WORKSHOP_DIR:-/workspace/platform}" || exit 1
 
+# Named rather than assumed. Every path below is built from it, and under `set -u`
+# an unset one aborts with "WORKSHOP_USERNAME: unbound variable" -- which reads as
+# a broken grader rather than as a step nobody has run yet.
+[ -n "${WORKSHOP_USERNAME:-}" ] || {
+  echo "WORKSHOP_USERNAME is not set, so there is nothing to grade yet." >&2
+  echo "Challenge 1 writes it: ./scripts/workshop init --api-key --username <you> ..." >&2
+  echo "Then: source \"\$(./scripts/workshop env-file)\"" >&2
+  exit 1
+}
+
 # `temporal cloud` needs the platform's key, and the key is in Vault rather than
 # in any environment. `workshop exec` is the one thing that bridges that: it puts
 # the key in the environment of a single command and lets it die there, and fills

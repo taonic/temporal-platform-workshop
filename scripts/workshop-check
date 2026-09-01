@@ -25,7 +25,7 @@ export VAULT_TOKEN="${VAULT_TOKEN:-${VAULT_DEV_ROOT_TOKEN_ID:-dev}}"
 echo "Tools"
 for probe in \
     "temporal:temporal --version" \
-    "temporal cloud:temporal cloud --help" \
+    "temporal cloud:temporal cloud whoami --help" \
     "terraform:terraform version" \
     "go:go version" \
     "uv:uv --version" \
@@ -37,6 +37,18 @@ do
     name="${probe%%:*}"; cmd="${probe#*:}"
     if $cmd > /dev/null 2>&1; then ok "$name"; else bad "$name"; fi
 done
+
+# `temporal cloud` is a SEPARATE BINARY the CLI discovers on PATH, and it is the
+# prerequisite people most often arrive without -- so the FAIL above needs to say
+# what to install rather than leaving someone reinstalling the CLI they already
+# have. Probed on `whoami` for the same reason: `temporal cloud --help` succeeds
+# with no extension installed at all.
+if ! temporal cloud whoami --help > /dev/null 2>&1; then
+    echo "        the cloud extension is a separate download from the CLI:"
+    echo "          macOS: brew install temporalio/brew/temporal-cloud"
+    echo "          Linux: https://github.com/temporalio/cloud-cli/releases"
+    echo "                 (the tarball ships temporal-cloud; put it on your PATH)"
+fi
 
 # tpctl is not in the loop above because a missing one is almost never a missing
 # binary. It is `bin/` not being on PATH, which means the env file was not sourced

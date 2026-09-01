@@ -16,14 +16,10 @@ export function JoinForm({
   code,
   domain,
   loginUrl,
-  cohort,
-  region,
 }: {
   code: string;
   domain: string;
   loginUrl: string;
-  cohort: string;
-  region: string;
 }) {
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
@@ -40,12 +36,6 @@ export function JoinForm({
   }
 
   if (result?.username && result.password) {
-    // Every value filled in, so this is a copy-paste and not a form. `init`
-    // prompts for anything missing, and a prompt is where a cohort id gets typed
-    // wrong -- which then tags every namespace the student creates.
-    const cmd =
-      `./scripts/workshop init --username ${result.username} ` +
-      `--cohort ${cohort} --region ${region}`;
     return (
       <section className="card stack">
         <h2>{result.returning ? `Welcome back, ${result.username}` : `You are ${result.username}`}</h2>
@@ -94,10 +84,6 @@ export function JoinForm({
             </a>
             <span className="expect">Opens in a new tab, so this password stays on screen.</span>
           </p>
-        </div>
-        <div className="stack">
-          <p className="eyebrow">Then, in your terminal</p>
-          <pre className="code">{cmd}</pre>
         </div>
         <p>
           <a href={result.labUrl}>Start challenge 1 →</a>

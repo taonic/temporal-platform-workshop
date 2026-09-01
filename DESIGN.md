@@ -624,8 +624,11 @@ Prebuilt aggressively:
 - `terraform` plus a **warm provider plugin cache** — a cold `terraform init`
   against `temporalio/temporalcloud` is a silent two-minute stall on challenge 1
 - Vault **CLI** only. The server is a pod on k3s
-- `temporal` with `temporal cloud`, and a build-time assertion that the subcommand
-  exists — a stale pin is a failed preset build rather than a failed challenge 1
+- `temporal`, **plus the `temporal-cloud` binary** — `temporal cloud` is a separate
+  download that the CLI discovers on `PATH`, not part of the CLI, and it is the
+  prerequisite people most often arrive without. Asserted at build time on
+  `temporal cloud whoami --help`, because `temporal cloud --help` succeeds with no
+  extension installed at all and therefore proves nothing
 - k3s **started and enabled**, its own system images pulled. This used to be
   "installed, not started", from when the cluster first appeared in challenge 4;
   Vault runs on it now, so it is challenge-1 material and a first start is a

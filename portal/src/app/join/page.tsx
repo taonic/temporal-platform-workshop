@@ -55,8 +55,6 @@ export default async function JoinPage({
           code={code}
           domain={config().WORKSHOP_DOMAIN}
           loginUrl={config().PORTAL_CLOUD_LOGIN_URL}
-          cohort={config().WORKSHOP_COHORT}
-          region={config().WORKSHOP_CONTROL_REGION}
         />
       </main>
     </>

@@ -32,26 +32,51 @@ export const lab1: LabDef = {
         '`platform-' + username + '-key`. **Copy it immediately** -- it is shown once and cannot be ' +
         'read back, and the only recovery is generating another. Then hand it straight to Vault -- ' +
         'the command asks for it and does not echo what you paste, so it stays out of your ' +
-        'shell history -- and ask Temporal who it belongs to:',
+        'shell history -- tell this machine who you are, and ask Temporal who the key belongs to:',
       command:
-        `./scripts/workshop init --api-key      # prompts; your paste is not echoed\n` +
+        `# Prompts for the key; your paste is not echoed.\n` +
+        `./scripts/workshop init --api-key \\\n` +
+        `  --username ${username} --cohort ${cohort} \\\n` +
+        `  --region ${region} --namespace ws-${username}-control\n` +
+        `\n` +
+        `source "$(./scripts/workshop env-file)"\n` +
         `\n` +
         `# Ask Temporal who the key in Vault belongs to\n` +
-        `source "$(./scripts/workshop env-file)"\n` +
         `temporal cloud whoami \\\n` +
         `  --api-key "$(vault kv get -field=api_key secret/platform/cloud-api-key)"`,
       expect:
-        'The first command has more to do than it looks: Vault runs as a pod on your cluster, so ' +
-        'if nothing is answering yet it brings Kubernetes, Vault and its Kubernetes auth up ' +
-        'first, announcing each step, and seeds the key as the last one. That is why the paste ' +
-        'prompt comes before the scrolling rather than after it. ' +
-        'The `source` line is what makes `vault kv get` work: without `$VAULT_ADDR` the CLI ' +
-        'defaults to `https://127.0.0.1:8200` and fails with "http: server gave HTTP response to ' +
-        'HTTPS client", which reads as a TLS problem rather than an unset variable. ' +
-        '**Why a service account?** You hold Global Admin, because a student has to be able to ' +
-        'see everything. The platform gets the least that works: it creates namespaces, service ' +
-        'accounts and tags, and never administers a user -- so Developer is enough, and challenge ' +
-        '5 is where you notice nothing was missing.',
+        'Three things happen in that first command, and the order inside it is the interesting ' +
+        'part:',
+      bullets: [
+        '**Vault comes up first, if it is not already.** It runs as a pod on your cluster, so if ' +
+          'nothing is answering the command brings Kubernetes, Vault and its Kubernetes auth up ' +
+          'before it can write anything -- announcing each step, and seeding the key as the last ' +
+          'one. That is why the paste prompt comes *before* the scrolling rather than after it.',
+        '**One command does both halves, and it seeds the key before it writes the env file.** ' +
+          'That order is what lets it decode your account id straight out of the key it is still ' +
+          'holding -- which is where the `.' + accountId + '` on the end of `$TEMPORAL_NAMESPACE` ' +
+          'comes from. Running the two halves separately works, but the second one then has to go ' +
+          'and read the key back out of Vault to learn the same thing.',
+        '**What it writes:** the `TF_VAR_*` variables Terraform reads further down, and the Cloud ' +
+          'endpoint for ' + region + ' -- derived from the region, so the two cannot disagree. ' +
+          '`--namespace` names the control plane\'s own namespace, `ws-' + username + '-control`, ' +
+          'the one you are about to build.',
+        '**What it does NOT write:** that namespace\'s fully qualified name, with your account id ' +
+          'on the end. It could not honestly write it yet -- the namespace does not exist, so ' +
+          'anything it wrote would be a guess. Challenge 2 reads the real name out of Terraform ' +
+          'instead.',
+        '**`source` matters twice.** It loads all of the above into the shell you are sitting in, ' +
+          'so a new terminal needs it again -- and it is what makes `vault kv get` work at all. ' +
+          'Without `$VAULT_ADDR` the CLI defaults to `https://127.0.0.1:8200` and fails with ' +
+          '"http: server gave HTTP response to HTTPS client", which reads as a TLS problem rather ' +
+          'than an unset variable.',
+      ],
+      closing:
+        '**Why a service account, when you already hold Global Admin?** You hold it because a ' +
+        'student has to be able to see everything. The platform gets the least that works: it ' +
+        'creates namespaces, service accounts and tags, and never administers a user -- so ' +
+        'Developer is enough, and nothing in the three challenges after this one turns out to be ' +
+        'missing.',
     },
     {
       label: 'Write the module',
@@ -76,30 +101,20 @@ export const lab1: LabDef = {
         'next one expects it.',
     },
     {
-      label: 'Now the variables the apply needs',
+      label: 'Check the machine before you touch the Cloud',
       lead:
-        'The module reads four variables from the environment, and this is the moment they start ' +
-        'to matter -- which is why they were not set earlier. The join screen printed this line ' +
-        'with every value already in it:',
+        'The module is written and it type-checks. The apply below is the first thing all day that ' +
+        'creates something real, so this is the moment to find out that a tool is missing rather ' +
+        'than halfway through it:',
       command:
-        `./scripts/workshop init --username ${username} --cohort ${cohort} \\\n` +
-        `  --region ${region} --namespace ws-${username}-control\n` +
         `source "$(./scripts/workshop env-file)"\n` +
         `./scripts/workshop check`,
       expect:
-        'It writes the TF_VAR_* variables Terraform reads and the Cloud endpoint for ' + region +
-        ', which it derives from the region so the two cannot disagree. `--namespace` names the ' +
-        'control plane\'s own namespace -- the one you are about to create, ' +
-        '`ws-' + username + '-control`. Note what it does NOT write: the fully qualified name ' +
-        'with your account id on the end. It could not honestly write it here, because the ' +
-        'namespace does not exist yet and anything it wrote would be a guess. Challenge 2 reads ' +
-        'the real name out of Terraform instead, once your apply has made one. `source` loads ' +
-        'the variables into the shell ' +
-        'you are sitting in; a new terminal needs it again. It does not ask for the key ' +
-        '-- that is already in Vault and stays there. Then check reports tools, cluster, Vault, ' +
-        'egress and control plane. Read warn and FAIL differently: warn means not built yet -- no ' +
-        'platform-worker and no control namespace is exactly right at this point -- and FAIL means ' +
-        'broken.',
+        'Tools, cluster, Vault, egress and control plane. Read warn and FAIL differently: warn ' +
+        'means not built yet -- no platform-worker and no control namespace is exactly right at ' +
+        'this point -- and FAIL means broken. The `source` is there because `check` looks for ' +
+        '`tpctl` on your `PATH`, and a shell that never sourced the env file reports it missing ' +
+        'when it is sitting in `bin/`. Sourcing twice costs nothing.',
     },
     {
       label: 'Run your own module by hand, once',
