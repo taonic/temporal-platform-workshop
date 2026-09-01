@@ -261,11 +261,70 @@ log "k3s"
 curl -fsSL https://get.k3s.io | INSTALL_K3S_CHANNEL="$K3S_CHANNEL" INSTALL_K3S_SKIP_START=true sh -
 
 log "clone the platform"
-mkdir -p "$(dirname "$WORKSHOP_DIR")"
-git clone --depth 1 --branch "$LAB_REPO_REF" "$LAB_REPO_URL" "$WORKSHOP_DIR"
+# Only what labs 1 to 4 touch, and it is an ALLOW-LIST on purpose.
+#
+# The repo is not the workshop. `portal/` is half of it by file count and holds
+# `src/course/snippets/` -- which IS the answer key, there is no solutions
+# directory -- plus grading.ts, which is every checkpoint's pass condition.
+# Cloning the lot drops all of that into the directory thirty people spend the
+# day in. The repo is public, so this is friction rather than a control; but a
+# folder you are already sitting in gets grepped, and one you would have to go
+# and find does not.
+#
+# Allow-list rather than a clone-then-delete, because the failure modes differ.
+# A deny-list silently leaks whatever gets added to the repo next; this way a new
+# top-level directory has to be named here before a student ever sees it.
+KEEP=(
+  Makefile go.mod go.sum .dockerignore .gitignore
+  cmd internal terraform worker schema specs deploy hooks
+  scripts/workshop scripts/workshop-check
+  instruqt/checks instruqt/sandbox/config.yml
+)
+# Excluded, and each for its own reason: portal/ is the answers; _stubs/ only
+# feeds `make unsolve`, which is instructor tooling; services/ and the other
+# scripts/ entries are the IdP and teardown, which no lab runs; DESIGN.md,
+# CLAUDE.md, README.md and design-doc.html are the writing ABOUT the workshop,
+# and the instructions a student needs are in the portal by design.
+SRC=/tmp/platform-src
+rm -rf "$SRC"
+git clone --depth 1 --branch "$LAB_REPO_REF" "$LAB_REPO_URL" "$SRC"
+
+mkdir -p "$WORKSHOP_DIR"
+# tar rather than cp: it recreates the directory structure for a path list
+# without needing --parents, and it is the same two lines on any image. An array
+# rather than a string, so nothing depends on word splitting.
+(cd "$SRC" && tar -cf - "${KEEP[@]}") | (cd "$WORKSHOP_DIR" && tar -xf -)
+rm -rf "$SRC"
 cd "$WORKSHOP_DIR"
-# The post-commit hook runs `tpctl sync`, which is how challenge 3's "commit a
-# spec and the platform converges" works at all.
+
+# Checked rather than assumed. The failure is silent -- a tree that quietly
+# brought everything looks identical until a student opens snippets/.
+for leaked in portal _stubs services DESIGN.md CLAUDE.md design-doc.html; do
+  [ ! -e "$leaked" ] || { echo "FAIL $leaked reached the sandbox; the allow-list did not hold" >&2; exit 1; }
+done
+# And the reverse: a keep entry that stops existing upstream would otherwise show
+# up as a missing command three challenges in.
+for want in Makefile scripts/workshop worker/pyproject.toml deploy/platform/up.sh \
+            terraform/namespace/variables.tf instruqt/sandbox/config.yml; do
+  [ -e "$want" ] || { echo "FAIL $want is missing -- KEEP is out of date with the repo" >&2; exit 1; }
+done
+
+# A git repo of its own, with no history of what was left out.
+#
+# Not the clone's .git: challenge 3 asks a student to commit a spec, and the
+# post-commit hook is what signals the reconciler -- so git has to work. A fresh
+# init gives that without carrying `git show HEAD:portal/...` along with it.
+#
+# The identity is set because there is nobody to ask for one. Without it a
+# student's first `git commit` stops on "Please tell me who you are", which is a
+# confusing place for challenge 3 to end.
+git init -q
+git config user.email "workshop@temporal.workshop"
+git config user.name  "Workshop"
+git add -A
+git commit -q -m "The workshop, as a student finds it"
+# After the first commit, not before: on an initial commit the hook sees every
+# path as added and would try to sync a spec directory nothing has read yet.
 git config core.hooksPath hooks
 
 # Now that the config is on disk, read what a student's shell will be given --

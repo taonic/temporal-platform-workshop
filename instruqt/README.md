@@ -16,10 +16,44 @@ time the answer is none of them:
 | `track/track.yml` or the one assignment | `instruqt track push` |
 
 The middle rows are the important ones. The sandbox does not contain this repo —
-`scripts/setup-platform-workshop` clones it from `LAB_REPO_URL` at
+`scripts/setup-platform-workshop` fetches it from `LAB_REPO_URL` at
 `LAB_REPO_REF`, so a fix to a check script, a lab stub or `scripts/workshop`
 reaches the next student the moment it is on that branch, with nothing pushed to
 Instruqt at all.
+
+### What the sandbox actually contains
+
+Not the repo — an **allow-list** out of it, the `KEEP` array in the setup script:
+
+```
+Makefile go.mod go.sum .dockerignore .gitignore
+cmd internal terraform worker schema specs deploy hooks
+scripts/workshop scripts/workshop-check
+instruqt/checks instruqt/sandbox/config.yml
+```
+
+`portal/` is the reason. It is half the repo by file count and it holds
+`src/course/snippets/` — which *is* the answer key, there is no `solutions/` — plus
+`grading.ts`, every checkpoint's pass condition. The repo is public, so leaving it
+out is friction rather than a control; but a folder people already sit in gets
+grepped, and one they would have to go and find does not. Also out: `_stubs/`
+(feeds `make unsolve`, instructor-only), `services/` and the teardown scripts, and
+the prose *about* the workshop — `DESIGN.md`, `CLAUDE.md`, `README.md` — since the
+instructions a student needs are in the portal by design.
+
+An allow-list, not a clone-then-delete, because a deny-list silently leaks
+whatever lands in the repo next. **Adding a top-level directory a lab needs means
+adding it to `KEEP`**, and the build asserts both directions — nothing excluded
+arrived, and nothing named went missing — so a stale list fails the run instead of
+surfacing three challenges in.
+
+Two consequences worth knowing. `make verify`, `make solve` and `make unsolve` do
+not work in a sandbox, by construction. And the checkout is a **fresh `git init`**
+with one commit, not the clone's history: challenge 3 has a student commit a spec
+and the post-commit hook signal the reconciler, so git has to work — but a fresh
+repo gives that without carrying `git show HEAD:portal/...` along with it. It also
+sets `user.email` and `user.name`, because there is nobody to ask, and without
+them that commit stops on "Please tell me who you are".
 
 ## Layout, and where each command runs
 
