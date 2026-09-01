@@ -163,11 +163,38 @@ curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "$CODE_SERVER
 # but a colorTheme naming a theme this build does not ship falls back silently
 # rather than erroring, and Dark+ has shipped in every VS Code for years and is
 # what the temporal-cloud-training-portal track already runs on code-server.
+# HCL and YAML only, and the omissions are deliberate. VS Code ships grammars for
+# Go and Python, so they highlight without help; Terraform does not, and challenge
+# 1 has a student writing main.tf by hand. What is NOT installed is the language
+# servers -- gopls and a Python analyser would sit on a box already running k3s,
+# Docker and a control plane, to serve labs where the code is read and pasted more
+# than it is authored. Non-fatal: Open VSX being slow is not a reason to fail a
+# sandbox.
+for ext in hashicorp.terraform redhat.vscode-yaml; do
+  /usr/bin/code-server --install-extension "$ext" >/dev/null 2>&1 \
+    || echo "  warn could not install $ext -- highlighting only, carrying on"
+done
+
 mkdir -p /root/.local/share/code-server/User
-cat > /root/.local/share/code-server/User/settings.json <<'SETTINGS'
+cat > /root/.local/share/code-server/User/settings.json <<SETTINGS
 {
   "workbench.colorTheme": "Default Dark+",
-  "window.autoDetectColorScheme": false
+  "window.autoDetectColorScheme": false,
+  "security.workspace.trust.enabled": false,
+  "editor.tabSize": 4,
+  "[terraform]": { "editor.tabSize": 2 },
+  "[yaml]": { "editor.tabSize": 2 },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/.terraform": true,
+    "**/.pytest_cache": true,
+    "**/.platform-state": true
+  },
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.scrollback": 20000,
+  "python.defaultInterpreterPath": "$WORKSHOP_DIR/worker/.venv/bin/python",
+  "python.terminal.activateEnvironment": false
 }
 SETTINGS
 
@@ -178,6 +205,12 @@ After=network.target
 
 [Service]
 Environment=HOME=/root
+# A terminal opened INSIDE the Editor tab inherits this, and systemd's default
+# PATH has neither /usr/local/go/bin nor /root/.local/bin on it -- so `go` and
+# `uv` would be missing in the editor while working perfectly in the Terminal
+# tab, which is a confusing way to lose ten minutes. /etc/profile.d also fixes
+# it for interactive shells; this makes it true before that runs.
+Environment=PATH=/usr/local/go/bin:/root/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 # --cert, so this is HTTPS. Instruqt's service tab proxies 8443 as TLS: without
 # it the listener answers a local curl perfectly and the tab sits on "We're
 # trying to connect to the service, but it seems like it's not quite ready yet".
