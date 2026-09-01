@@ -151,6 +151,26 @@ log "code-server, and the \`code\` command the labs type"
 # deleted at the end of the day; not a pattern to copy anywhere else.
 curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "$CODE_SERVER_VERSION"
 
+# Dark, and settled before the editor ever starts.
+#
+# $HOME is /root for the unit below, so this is the User settings path
+# code-server reads. autoDetectColorScheme is named explicitly rather than left
+# at its default: it takes the theme from the BROWSER's prefers-color-scheme,
+# which would hand a student on a light laptop a light editor no matter what is
+# set here.
+#
+# "Default Dark+" rather than the newer "Default Dark Modern": both are built in,
+# but a colorTheme naming a theme this build does not ship falls back silently
+# rather than erroring, and Dark+ has shipped in every VS Code for years and is
+# what the temporal-cloud-training-portal track already runs on code-server.
+mkdir -p /root/.local/share/code-server/User
+cat > /root/.local/share/code-server/User/settings.json <<'SETTINGS'
+{
+  "workbench.colorTheme": "Default Dark+",
+  "window.autoDetectColorScheme": false
+}
+SETTINGS
+
 cat > /etc/systemd/system/code-server.service <<UNIT
 [Unit]
 Description=code-server, the Editor tab
