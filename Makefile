@@ -150,12 +150,21 @@ worker-image:
 # Instructor tooling. `solve` is also the honest way to see how a lab ends up.
 # ---------------------------------------------------------------------------
 
+# All three need inputs a SANDBOX checkout does not have, and that is by design
+# rather than an oversight: `portal/` is the Fly app -- it is deployed, not run
+# here -- and `_stubs/` only feeds unsolve, so neither is brought into a sandbox.
+# See instruqt/README.md. The guards exist so that typing one there says which
+# input is missing, instead of failing three lines later on `pnpm: not found`.
+NEED_PORTAL = @[ -d portal ] || { echo "This needs portal/, which a sandbox checkout does not have -- it is the Fly app, and instructor tooling only."; exit 1; }
+
 # Sourced from the portal's snippets: one copy of every answer, and it is the copy
 # students actually read. Needs `pnpm install` in portal/.
 solve:
+	$(NEED_PORTAL)
 	cd portal && pnpm snippets:emit --out ..
 
 unsolve:
+	@[ -d _stubs ] || { echo "This needs _stubs/, which a sandbox checkout does not have -- instructor tooling only."; exit 1; }
 	@rm -f terraform/namespace/outputs.tf
 	@for f in $(LAB_GO) $(LAB_PY) terraform/namespace/main.tf; do cp _stubs/$$f $$f; echo "  stubbed $$f"; done
 
@@ -164,6 +173,7 @@ unsolve:
 # solutions directory would have been a straight downgrade, because nothing else
 # ever compiles a TypeScript string literal.
 verify:
+	$(NEED_PORTAL)
 	cd portal && pnpm snippets:check
 	@$(MAKE) --no-print-directory solve
 	go build ./...

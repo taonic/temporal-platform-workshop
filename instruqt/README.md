@@ -32,11 +32,16 @@ scripts/workshop scripts/workshop-check
 instruqt/checks instruqt/sandbox/config.yml
 ```
 
-`portal/` is the reason. It is half the repo by file count and it holds
-`src/course/snippets/` — which *is* the answer key, there is no `solutions/` — plus
-`grading.ts`, every checkpoint's pass condition. The repo is public, so leaving it
-out is friction rather than a control; but a folder people already sit in gets
-grepped, and one they would have to go and find does not. Also out: `_stubs/`
+`portal/` is most of what that leaves out, and the first reason is simply that it
+is **a different deployment**: it is the Fly app (`temporal-workshop-portal`),
+served from `fly.io` to the student's own browser. Nothing in a sandbox runs it,
+and nothing in a sandbox could — there is no Node and no pnpm here.
+
+That it also holds `src/course/snippets/`, which *is* the answer key, and
+`grading.ts`, every checkpoint's pass condition, is a second reason rather than
+the main one. The repo is public, so leaving it out is friction rather than a
+control; but a folder people already sit in gets grepped, and one they would have
+to go and find does not. Also out: `_stubs/`
 (feeds `make unsolve`, instructor-only), `services/` and the teardown scripts, and
 the prose *about* the workshop — `DESIGN.md`, `CLAUDE.md`, `README.md` — since the
 instructions a student needs are in the portal by design.
