@@ -273,6 +273,104 @@ VAULT_IMAGE="$(awk '/image: hashicorp\/vault:/ {print $2; exit}' deploy/platform
   exit 1
 }
 
+# Written HERE, before the slow half, and that placement is the point.
+#
+# This used to be the second-to-last thing the script did -- at about 277 of 280
+# seconds -- and Instruqt attaches a terminal long before setup finishes. A shell
+# that starts first reads a .bashrc without these lines in it and sits in /root
+# for the rest of the day, with no $WORKSHOP_DIR, no KUBECONFIG and no portal
+# link, while the build log says "ready". Everything below needs only the clone
+# and the config, both of which are already done, so there is no reason to make a
+# student race it.
+#
+# It does not close the race entirely -- a terminal opened in the first minute
+# still predates this -- so `exec bash` remains the fix for a shell that started
+# too early.
+log "platform environment"
+# Its own named block, so that `workshop init` -- which rewrites `# >>> workshop`
+# and `# >>> workshop vault` -- cannot delete these lines, and these lines cannot
+# delete what it writes. Nothing here is a secret and nothing here is a choice the
+# student makes: identity, region and the Cloud address are all `init`'s to write,
+# and they come from the portal.
+#
+# Terraform state is local -- a file under .platform-state in the student's own
+# checkout. Nothing to reach, nothing to authenticate to, and debuggable with
+# `cat` when an apply goes wrong.
+install -d /etc/workshop
+cat > /etc/workshop/env <<ENV
+# >>> workshop sandbox
+export WORKSHOP_DIR=$WORKSHOP_DIR
+export WORKSHOP_COHORT=\${WORKSHOP_COHORT:-$(date +%Y-%m)}
+# Tags what this box creates, so a teardown can find it. Per participant rather
+# than per image: baked at build time it would be one value for the whole cohort.
+export WORKSHOP_RUN_ID=\${INSTRUQT_PARTICIPANT_ID:-${INSTRUQT_TRACK_SLUG:-local}}
+export VAULT_ADDR=$VAULT_ADDR
+export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
+# k3s puts its kubeconfig somewhere only it knows about. kubectl is a symlink to
+# k3s and finds it on its own; k9s, which challenge 2 asks a student to open, does
+# not -- it reads \$KUBECONFIG like any other client and reports "no clusters".
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Where the lab material lives. The join link is built from this at shell start,
+# not here -- see below.
+export PORTAL_URL=$PORTAL_URL
+export PORTAL_LINK_CODE="$PORTAL_LINK_CODE"
+export PATH=/usr/local/go/bin:/root/.local/bin:$WORKSHOP_DIR/bin:\$PATH
+# <<< workshop sandbox
+ENV
+
+# Sourced for every shell, and landing in the repo. Every command in every lab is
+# written to be run from the repo root -- `./scripts/workshop`, `code
+# terraform/...`, `ls specs/*.yaml` -- and Instruqt opens the terminal in /root.
+cat > /etc/profile.d/workshop.sh <<'PROFILE'
+# Once per shell. A login shell reads /etc/profile.d/*.sh and .bashrc sources this
+# too, and without the guard $PATH ends up holding every entry twice.
+#
+# The guard is on THIS file and not on the env file, deliberately: challenge 1
+# tells the student to run `source "$(./scripts/workshop env-file)"` after `init`
+# rewrites it, and a sentinel there would make that step do nothing.
+if [ -z "${WORKSHOP_ENV_SOURCED:-}" ]; then
+  # shellcheck disable=SC1091
+  source /etc/workshop/env
+  export WORKSHOP_ENV_SOURCED=1
+fi
+# Only for a shell someone is sitting at. A grader or a hook that sources this
+# should get the variables without being moved out of the directory it chose --
+# and neither should be shown a join link.
+case $- in
+  *i*)
+    cd "$WORKSHOP_DIR" 2>/dev/null || true
+
+    # The portal link, built HERE rather than baked into the image.
+    #
+    # This is the one thing a student has to have, and the setup script cannot
+    # give it to them: a preset's setup script runs at image build time, so
+    # anything it prints goes to a build log nobody in the room will ever see, and
+    # neither $PORTAL_URL nor $PORTAL_LINK_CODE is in scope there. Both come out of
+    # /etc/workshop/env, sourced just above, which the setup script wrote.
+    #
+    # Bare on purpose: it cannot be personalised, because the student has not
+    # chosen a username yet. They pick one at the portal and bookmark what it
+    # hands back.
+    if [ -n "${PORTAL_LINK_CODE:-}" ] && [ -n "${PORTAL_URL:-}" ]; then
+      printf '\n  Your workshop instructions:\n  %s/join?k=%s\n\n' \
+        "$PORTAL_URL" "$PORTAL_LINK_CODE"
+    else
+      printf '\n  No portal link: PORTAL_LINK_CODE is not set on this sandbox.\n'
+      printf '  Ask your instructor for the join link -- the labs are all in there.\n\n'
+    fi
+    ;;
+esac
+PROFILE
+# Both files, because which one a terminal reads depends on whether it opens a
+# login shell, and that is Instruqt's choice rather than ours. The guard above
+# makes reading both a no-op; reading neither is a student sitting in /root
+# wondering why every command in every lab says "no such file or directory".
+cat >> /root/.bashrc <<'BRC'
+source /etc/profile.d/workshop.sh
+BRC
+# shellcheck disable=SC1091
+source /etc/workshop/env
+
 log "build the control plane cli"
 # tpctl on PATH, because every lab from challenge 2 onward types it bare. The env
 # file puts $WORKSHOP_DIR/bin first, so a student who rebuilds it with
@@ -369,91 +467,6 @@ done
 # Printing what containerd actually holds cannot be misread that way.
 echo "  k3s image store:"
 k3s ctr images ls -q 2>/dev/null | grep -E 'platform-worker|managed-worker|vault' | sed 's/^/    /' || true
-
-log "platform environment"
-# Its own named block, so that `workshop init` -- which rewrites `# >>> workshop`
-# and `# >>> workshop vault` -- cannot delete these lines, and these lines cannot
-# delete what it writes. Nothing here is a secret and nothing here is a choice the
-# student makes: identity, region and the Cloud address are all `init`'s to write,
-# and they come from the portal.
-#
-# Terraform state is local -- a file under .platform-state in the student's own
-# checkout. Nothing to reach, nothing to authenticate to, and debuggable with
-# `cat` when an apply goes wrong.
-install -d /etc/workshop
-cat > /etc/workshop/env <<ENV
-# >>> workshop sandbox
-export WORKSHOP_DIR=$WORKSHOP_DIR
-export WORKSHOP_COHORT=\${WORKSHOP_COHORT:-$(date +%Y-%m)}
-# Tags what this box creates, so a teardown can find it. Per participant rather
-# than per image: baked at build time it would be one value for the whole cohort.
-export WORKSHOP_RUN_ID=\${INSTRUQT_PARTICIPANT_ID:-${INSTRUQT_TRACK_SLUG:-local}}
-export VAULT_ADDR=$VAULT_ADDR
-export VAULT_TOKEN=$VAULT_DEV_ROOT_TOKEN_ID
-# k3s puts its kubeconfig somewhere only it knows about. kubectl is a symlink to
-# k3s and finds it on its own; k9s, which challenge 2 asks a student to open, does
-# not -- it reads \$KUBECONFIG like any other client and reports "no clusters".
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-# Where the lab material lives. The join link is built from this at shell start,
-# not here -- see below.
-export PORTAL_URL=$PORTAL_URL
-export PORTAL_LINK_CODE="$PORTAL_LINK_CODE"
-export PATH=/usr/local/go/bin:/root/.local/bin:$WORKSHOP_DIR/bin:\$PATH
-# <<< workshop sandbox
-ENV
-
-# Sourced for every shell, and landing in the repo. Every command in every lab is
-# written to be run from the repo root -- `./scripts/workshop`, `code
-# terraform/...`, `ls specs/*.yaml` -- and Instruqt opens the terminal in /root.
-cat > /etc/profile.d/workshop.sh <<'PROFILE'
-# Once per shell. A login shell reads /etc/profile.d/*.sh and .bashrc sources this
-# too, and without the guard $PATH ends up holding every entry twice.
-#
-# The guard is on THIS file and not on the env file, deliberately: challenge 1
-# tells the student to run `source "$(./scripts/workshop env-file)"` after `init`
-# rewrites it, and a sentinel there would make that step do nothing.
-if [ -z "${WORKSHOP_ENV_SOURCED:-}" ]; then
-  # shellcheck disable=SC1091
-  source /etc/workshop/env
-  export WORKSHOP_ENV_SOURCED=1
-fi
-# Only for a shell someone is sitting at. A grader or a hook that sources this
-# should get the variables without being moved out of the directory it chose --
-# and neither should be shown a join link.
-case $- in
-  *i*)
-    cd "$WORKSHOP_DIR" 2>/dev/null || true
-
-    # The portal link, built HERE rather than baked into the image.
-    #
-    # This is the one thing a student has to have, and the setup script cannot
-    # give it to them: a preset's setup script runs at image build time, so
-    # anything it prints goes to a build log nobody in the room will ever see, and
-    # neither $PORTAL_URL nor $PORTAL_LINK_CODE is in scope there. Both come out of
-    # /etc/workshop/env, sourced just above, which the setup script wrote.
-    #
-    # Bare on purpose: it cannot be personalised, because the student has not
-    # chosen a username yet. They pick one at the portal and bookmark what it
-    # hands back.
-    if [ -n "${PORTAL_LINK_CODE:-}" ] && [ -n "${PORTAL_URL:-}" ]; then
-      printf '\n  Your workshop instructions:\n  %s/join?k=%s\n\n' \
-        "$PORTAL_URL" "$PORTAL_LINK_CODE"
-    else
-      printf '\n  No portal link: PORTAL_LINK_CODE is not set on this sandbox.\n'
-      printf '  Ask your instructor for the join link -- the labs are all in there.\n\n'
-    fi
-    ;;
-esac
-PROFILE
-# Both files, because which one a terminal reads depends on whether it opens a
-# login shell, and that is Instruqt's choice rather than ours. The guard above
-# makes reading both a no-op; reading neither is a student sitting in /root
-# wondering why every command in every lab says "no such file or directory".
-cat >> /root/.bashrc <<'BRC'
-source /etc/profile.d/workshop.sh
-BRC
-# shellcheck disable=SC1091
-source /etc/workshop/env
 
 log "egress probes"
 # What the SANDBOX has to reach, not what a browser does. cloud.temporal.io is
