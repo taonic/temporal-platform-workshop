@@ -158,7 +158,12 @@ After=network.target
 
 [Service]
 Environment=HOME=/root
-ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8443 --auth none \\
+# --cert, so this is HTTPS. Instruqt's service tab proxies 8443 as TLS: without
+# it the listener answers a local curl perfectly and the tab sits on "We're
+# trying to connect to the service, but it seems like it's not quite ready yet".
+# Self-signed, generated on first start, and never seen by a student -- the
+# proxy terminates it.
+ExecStart=/usr/bin/code-server --bind-addr 0.0.0.0:8443 --cert --auth none \\
   --disable-telemetry --disable-update-check --disable-workspace-trust $WORKSHOP_DIR
 Restart=always
 RestartSec=3
@@ -181,8 +186,18 @@ UNIT
 cat > /usr/local/bin/code <<'SHIM'
 #!/usr/bin/env bash
 set -uo pipefail
-CLI=/usr/lib/code-server/lib/vscode/bin/remote-cli/code
-[ -x "$CLI" ] || { echo "code-server is not installed on this machine." >&2; exit 1; }
+# Discovered, not hardcoded. The file under remote-cli/ is `code-server` in
+# current releases and was `code` in older ones, and the tree lives in
+# /usr/lib/code-server for the .deb and under ~/.local/lib for a standalone
+# install. Guessing one of those produced "code-server is not installed" on a
+# machine where it was installed and running.
+CLI="$(find /usr/lib/code-server /usr/local/lib/code-server "$HOME/.local/lib" \
+        -maxdepth 7 -type f -path '*remote-cli*' 2>/dev/null | head -1)"
+if [ -z "${CLI:-}" ] || [ ! -x "$CLI" ]; then
+  echo "Could not find code-server's remote CLI, so \`code\` cannot hand it a file." >&2
+  echo "Open ${1:-the file} from the Editor tab, or use nano/vim." >&2
+  exit 1
+fi
 
 if [ -n "${VSCODE_IPC_HOOK_CLI:-}" ]; then exec "$CLI" "$@"; fi
 
@@ -207,9 +222,11 @@ systemctl daemon-reload
 # --now as well as --enable: this proves it starts, here, rather than at boot in
 # front of a student with no build log to read.
 systemctl enable --now code-server
-for _ in $(seq 1 30); do curl -fsS --max-time 2 -o /dev/null http://127.0.0.1:8443/healthz && break; sleep 1; done
-curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:8443/healthz \
-  || { echo "FAIL code-server is not answering on 8443; the Editor tab would be blank" >&2; exit 1; }
+for _ in $(seq 1 30); do curl -fsSk --max-time 2 -o /dev/null https://127.0.0.1:8443/healthz && break; sleep 1; done
+curl -fsSk --max-time 5 -o /dev/null https://127.0.0.1:8443/healthz \
+  || { echo "FAIL code-server is not answering https on 8443; the Editor tab would not connect" >&2
+       systemctl status code-server --no-pager >&2 || true
+       exit 1; }
 
 log "k3s"
 # Installed here, started further down -- once the images are staged where its
