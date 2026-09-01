@@ -101,11 +101,13 @@ than trusting it — **so changing `LAB_REPO_REF` in `config.yml` alone will fai
 build on purpose.** Change both.
 
 **Anything it prints goes to a log, not to a student.** It runs before anybody has
-a shell, so it is the wrong place for per-student output — and `PORTAL_LINK_CODE`
-is not in scope there either. The join link is therefore built at shell start by
-`/etc/profile.d/workshop.sh`, out of `$PORTAL_URL` (written into
-`/etc/workshop/env` by the setup script) and `$PORTAL_LINK_CODE` (the Instruqt
-secret). If students see "No portal link", that secret is missing, not the script.
+a shell, so it is the wrong place for per-student output. The join link is
+therefore built at shell start by `/etc/profile.d/workshop.sh`, out of
+`$PORTAL_URL` and `$PORTAL_LINK_CODE` — both of which the setup script reads from
+`config.yml` after the clone and writes into `/etc/workshop/env`, since the
+`environment:` block reaches neither it nor, as far as anything here has proved, a
+login shell. If students see "No portal link", the `PORTAL_LINK_CODE` line in
+`config.yml` is empty.
 
 ## Updating the track
 
@@ -244,15 +246,28 @@ proves the sandbox comes up; it does not prove a challenge is passable.
 
 ## Secrets
 
+**This track uses none.** `PORTAL_LINK_CODE`, which opens the portal, is a plain
+variable in `sandbox/config.yml` — so it is published with this repo, and rotating
+it between cohorts is the whole control. Two places, both or neither, or the code
+in the sandbox no longer opens the portal:
+
 ```bash
-instruqt secrets list
-instruqt secrets create PORTAL_LINK_CODE --data-file /path/to/code
-instruqt secrets update PORTAL_LINK_CODE --data-file /path/to/new-code
+fly secrets set PORTAL_LINK_CODE=<new>       # the portal, in portal/
+#   ... and the PORTAL_LINK_CODE line in sandbox/config.yml, then:
+cd instruqt/sandbox && instruqt sandbox push --force && instruqt sandbox publish --message "rotate"
 ```
 
-One secret, `PORTAL_LINK_CODE`, which opens the portal — rotate it after a cohort
-and every outstanding join link dies at once. `--data-file` rather than a value
-argument keeps it out of your shell history.
+The setup script reads it out of `config.yml` after the clone and writes it into
+`/etc/workshop/env`, because Instruqt's `environment:` block does not reach the
+setup script and nothing has proved it reaches a login shell either.
+
+The CLI does still have secret commands, if a future change needs one:
+
+```bash
+instruqt secrets list
+instruqt secrets create NAME --data-file /path/to/value   # keeps it out of your history
+instruqt secrets update NAME --data-file /path/to/value
+```
 
 There is deliberately **no** Cloud API key here. Each student creates their own
 service account in challenge 1 and seeds its key into Vault with

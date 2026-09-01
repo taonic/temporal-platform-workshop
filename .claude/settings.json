@@ -1,5 +1,0 @@
-{
-  "permissions": {
-    "allow": ["Bash(instruqt sandbox:*)", "Bash(instruqt track:*)"]
-  }
-}

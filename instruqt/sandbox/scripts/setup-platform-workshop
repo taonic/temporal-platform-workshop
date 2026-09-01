@@ -254,6 +254,9 @@ done
 VAULT_ADDR="${VAULT_ADDR:-$(cfg_env VAULT_ADDR)}"
 VAULT_DEV_ROOT_TOKEN_ID="${VAULT_DEV_ROOT_TOKEN_ID:-$(cfg_env VAULT_DEV_ROOT_TOKEN_ID)}"
 PORTAL_URL="${PORTAL_URL:-$(cfg_env PORTAL_URL)}"
+# From the config, not the environment: it used to be an Instruqt secret and is
+# now a plain variable, and neither kind reaches a setup script.
+PORTAL_LINK_CODE="${PORTAL_LINK_CODE:-$(cfg_env PORTAL_LINK_CODE)}"
 WORKSHOP_STRICT_EGRESS="${WORKSHOP_STRICT_EGRESS:-$(cfg_env WORKSHOP_STRICT_EGRESS)}"
 : "${VAULT_ADDR:?not set here and not in sandbox/config.yml}"
 : "${VAULT_DEV_ROOT_TOKEN_ID:?not set here and not in sandbox/config.yml}"
@@ -394,6 +397,7 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 # Where the lab material lives. The join link is built from this at shell start,
 # not here -- see below.
 export PORTAL_URL=$PORTAL_URL
+export PORTAL_LINK_CODE="$PORTAL_LINK_CODE"
 export PATH=/usr/local/go/bin:/root/.local/bin:$WORKSHOP_DIR/bin:\$PATH
 # <<< workshop sandbox
 ENV
@@ -425,8 +429,8 @@ case $- in
     # This is the one thing a student has to have, and the setup script cannot
     # give it to them: a preset's setup script runs at image build time, so
     # anything it prints goes to a build log nobody in the room will ever see, and
-    # $PORTAL_LINK_CODE -- an Instruqt secret -- is not in scope there either. A
-    # shell start is the first moment both the student and the secret exist.
+    # neither $PORTAL_URL nor $PORTAL_LINK_CODE is in scope there. Both come out of
+    # /etc/workshop/env, sourced just above, which the setup script wrote.
     #
     # Bare on purpose: it cannot be personalised, because the student has not
     # chosen a username yet. They pick one at the portal and bookmark what it

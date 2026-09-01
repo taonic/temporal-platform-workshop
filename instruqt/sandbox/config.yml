@@ -31,16 +31,26 @@ virtualmachines:
       LAB_REPO_REF: main
       WORKSHOP_DIR: /workspace/platform
 
-      # Lab material and live checkpoints. The prebuild prints the BARE join link
-      # -- it cannot personalise one, because the student has not chosen a
-      # username yet. They pick it at the portal and bookmark what it hands back.
+      # Lab material and live checkpoints.
       PORTAL_URL: https://temporal-workshop-portal.fly.dev
+
+      # Opens the portal. A plain variable rather than an Instruqt secret, by
+      # request -- so note what that means: this file is committed to a PUBLIC
+      # repo, and this code is the only gate on the join page. Anyone who reads it
+      # can claim a Temporal Cloud identity and a namespace out of the account
+      # quota. Rotation is now the whole control, and it is two places, both or
+      # neither: `fly secrets set PORTAL_LINK_CODE=<new>` on the portal and this
+      # line. Every outstanding join link dies the moment they agree on a new one.
+      #
+      # FILL THIS IN. Empty is not broken -- the terminal says "No portal link"
+      # rather than printing a dead one -- but it is a sandbox nobody can join.
+      PORTAL_LINK_CODE: ""
 
       # Vault is a pod on k3s, reachable through the NodePort in
       # deploy/platform/vault.yaml. Nothing listens on 8200 on the host, and no
-      # Vault is running at all until `workshop init --api-key` brings one up:
-      # it runs in dev mode, so a Vault seeded during the prebuild would lose
-      # everything when this image is snapshotted and booted.
+      # Vault is running at all until `workshop init --api-key` brings one up --
+      # which is challenge 1's first command, and the only moment anybody holds
+      # the key it seeds.
       VAULT_ADDR: http://127.0.0.1:30820
       VAULT_DEV_ROOT_TOKEN_ID: workshop-root
 
@@ -48,10 +58,10 @@ virtualmachines:
       # preset build network is not the network the sandbox runs on.
       WORKSHOP_STRICT_EGRESS: "1"
 
-    # Set as Instruqt secrets, never here:
-    #   PORTAL_LINK_CODE         opens the portal. Rotate it after a cohort and every
-    #                            outstanding link dies at once
+    # No Instruqt secrets. Everything this sandbox needs is above, in the clear.
     #
-    # NOT here and not a secret: the platform's Cloud API key. Each student creates
-    # their own service account in challenge 1 and seeds its key with
-    # `workshop init --api-key`, so provisioning never holds one.
+    # The one credential that must never appear here is the platform's Cloud API
+    # key, and it never has to: each student creates their own service account in
+    # challenge 1 and seeds its key into Vault with `workshop init --api-key`, so
+    # provisioning holds no key at all. If a change to this workshop ever seems to
+    # need one in this file, that is a bug in the design -- see CLAUDE.md.
