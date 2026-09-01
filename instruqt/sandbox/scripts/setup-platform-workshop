@@ -65,6 +65,7 @@ CLOUD_CLI_VERSION=0.0.4       # `temporal cloud` -- a SEPARATE binary; see below
 UV_VERSION=0.12.7
 K9S_VERSION=v0.32.7
 CODE_SERVER_VERSION=4.135.0
+GOPLS_VERSION=v0.23.0        # the Go language server, so labs 2 and 3 can be READ
 K3S_CHANNEL=v1.31
 
 log "system packages"
@@ -163,17 +164,34 @@ curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "$CODE_SERVER
 # but a colorTheme naming a theme this build does not ship falls back silently
 # rather than erroring, and Dark+ has shipped in every VS Code for years and is
 # what the temporal-cloud-training-portal track already runs on code-server.
-# HCL and YAML only, and the omissions are deliberate. VS Code ships grammars for
-# Go and Python, so they highlight without help; Terraform does not, and challenge
-# 1 has a student writing main.tf by hand. What is NOT installed is the language
-# servers -- gopls and a Python analyser would sit on a box already running k3s,
-# Docker and a control plane, to serve labs where the code is read and pasted more
-# than it is authored. Non-fatal: Open VSX being slow is not a reason to fail a
-# sandbox.
-for ext in hashicorp.terraform redhat.vscode-yaml; do
+# Language servers included, which reverses an earlier call here.
+#
+# That call was that gopls and a Python analyser were weight to serve labs where
+# code is "read and pasted more than authored". It had the labs backwards. Reading
+# is exactly what challenges 2 and 3 are -- `code internal/platform/register.go`,
+# `code internal/platform/workflow/reconciler.go`, then follow the call into the
+# activities -- and without a language server "go to definition" does nothing, so
+# following the code means grepping for it. The weight is worth it on a
+# four-vCPU box for a module this size.
+#
+# Open VSX, not the Microsoft marketplace, which code-server cannot use. That
+# rules out Pylance, which is licensed so it cannot be mirrored; basedpyright is
+# the drop-in that is there.
+#
+# Non-fatal, all of them: a missing extension costs navigation, not a lab, and
+# Open VSX having a bad minute is not a reason to fail a sandbox.
+for ext in golang.Go detachhead.basedpyright ms-python.python \
+           hashicorp.terraform redhat.vscode-yaml; do
   /usr/bin/code-server --install-extension "$ext" >/dev/null 2>&1 \
-    || echo "  warn could not install $ext -- highlighting only, carrying on"
+    || echo "  warn could not install $ext -- carrying on without it"
 done
+
+# gopls itself, because the extension does not ship it: on first use it offers to
+# `go install` one, which is a network round trip and a compile in front of a
+# student who only clicked on a function name. GOBIN so it lands somewhere the
+# unit's PATH names.
+GOBIN=/usr/local/bin go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
+gopls version
 
 mkdir -p /root/.local/share/code-server/User
 cat > /root/.local/share/code-server/User/settings.json <<SETTINGS
@@ -194,7 +212,9 @@ cat > /root/.local/share/code-server/User/settings.json <<SETTINGS
   "terminal.integrated.defaultProfile.linux": "bash",
   "terminal.integrated.scrollback": 20000,
   "python.defaultInterpreterPath": "$WORKSHOP_DIR/worker/.venv/bin/python",
-  "python.terminal.activateEnvironment": false
+  "python.terminal.activateEnvironment": false,
+  "python.analysis.extraPaths": ["\${workspaceFolder}/worker"],
+  "basedpyright.analysis.extraPaths": ["\${workspaceFolder}/worker"]
 }
 SETTINGS
 

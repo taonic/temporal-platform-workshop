@@ -157,7 +157,10 @@ export const lab2: LabDef = {
       command: 'code internal/platform/register.go',
       expect:
         'One function, and everything in it commented out except a workflow that is there only ' +
-        'to keep the file compiling. This is the only file you edit in this challenge and the ' +
+        'to keep the file compiling. **Those comments are the exercise: you uncomment the ' +
+        'registration yourself.** Not yet, though -- two steps from now, once you have read the ' +
+        'workflow you would be switching on. Nothing you type in this step changes a file.\n\n' +
+        'This is the only file you edit in this challenge and the ' +
         'next -- the workflows themselves are already written, in ' +
         '`internal/platform/workflow`, and the activities beside them in ' +
         '`internal/platform/activity`.\n\n' +
