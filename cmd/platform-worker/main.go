@@ -52,12 +52,6 @@ func main() {
 	defer c.Close()
 
 	w := worker.New(c, platform.TaskQueue, worker.Options{
-		// Terraform is a subprocess, so concurrency here is bounded by disk and
-		// provider downloads rather than by CPU. Keep it modest: fifteen students
-		// applying at once against one worker is a thundering herd of terraform
-		// inits, not a demonstration of scale.
-		MaxConcurrentActivityExecutionSize: 8,
-
 		// Send heartbeats at most every 10s, rather than the SDK's default of
 		// 80% of the activity's HeartbeatTimeout.
 		//
